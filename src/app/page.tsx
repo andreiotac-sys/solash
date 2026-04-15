@@ -261,6 +261,7 @@ export default function Home() {
   );
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [pushTestBusy, setPushTestBusy] = useState(false);
   const [toast, setToast] = useState<{
     text: string;
     type: "success" | "error";
@@ -1162,6 +1163,39 @@ export default function Home() {
       });
     } finally {
       setPushBusy(false);
+    }
+  };
+
+  const handleTestPush = async () => {
+    if (!session?.access_token) {
+      setToast({ text: "Trebuie sa fii autentificata pentru test.", type: "error" });
+      return;
+    }
+    setPushTestBusy(true);
+    try {
+      const response = await fetch("/api/push/send-test", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Push test failed");
+      }
+
+      const result = (await response.json()) as { ok: boolean; sent?: number };
+      setToast({
+        text:
+          (result.sent ?? 0) > 0
+            ? "Notificarea de test a fost trimisa."
+            : "Nu exista device-uri active pentru notificari.",
+        type: (result.sent ?? 0) > 0 ? "success" : "error",
+      });
+    } catch {
+      setToast({ text: "Testul push a esuat.", type: "error" });
+    } finally {
+      setPushTestBusy(false);
     }
   };
 
@@ -2808,6 +2842,14 @@ export default function Home() {
                   Dezactiveaza
                 </button>
               </div>
+              <button
+                className="mt-3 w-full rounded-[8px] border border-line bg-panel px-4 py-3 text-sm font-medium disabled:opacity-60"
+                disabled={pushTestBusy || !pushSupported || !pushEnabled}
+                onClick={() => void handleTestPush()}
+                type="button"
+              >
+                {pushTestBusy ? "Se trimite..." : "Trimite notificare test acum"}
+              </button>
               {!vapidPublicKey ? (
                 <p className="mt-3 text-sm text-[#ff9d9d]">
                   Lipseste cheia publica VAPID in variabilele de mediu.
