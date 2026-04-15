@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SoLash
 
-## Getting Started
+Aplicatie Next.js pentru programari (gene), clienti, servicii si reminder-e.
 
-First, run the development server:
+## Rulare locala
+
+1. Copiaza `.env.example` in `.env.local`.
+2. Completeaza variabilele de Supabase.
+3. Ruleaza:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Deschide `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Push notifications (iPhone / PWA)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Sunt necesare:
 
-## Learn More
+- app instalata pe iPhone (Add to Home Screen),
+- permisiune de notificari acordata din aplicatie,
+- chei VAPID si `SUPABASE_SERVICE_ROLE_KEY`,
+- cron pe Vercel.
 
-To learn more about Next.js, take a look at the following resources:
+### Variabile de mediu
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@solash.app
+SUPABASE_SERVICE_ROLE_KEY=
+CRON_SECRET=
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Tabele Supabase
 
-## Deploy on Vercel
+Ruleaza `supabase/schema.sql` (contine si tabelele `push_subscriptions` + `push_notification_runs`).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Cron reminder
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`vercel.json` ruleaza endpoint-ul `/api/push/send-reminders` la fiecare 30 minute.
+Endpoint-ul trimite reminder doar in fereastra 20:30-20:59 `Europe/Bucharest` si evita dublurile in aceeasi zi.

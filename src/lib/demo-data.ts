@@ -4,12 +4,13 @@ import type {
   Service,
   SupabaseAppointmentRow,
   SupabaseClientRow,
+  SupabaseServiceRow,
 } from "@/lib/types";
 
 export const baseServices: Service[] = [
-  { name: "Mega Volum", duration: "3h", price: 350 },
-  { name: "Russian Volum", duration: "2h 30m", price: 300 },
-  { name: "Intretinere", duration: "2h", price: 220 },
+  { id: 1, name: "Mega Volum", duration: "3h", price: 350, active: true },
+  { id: 2, name: "Russian Volum", duration: "2h 30m", price: 300, active: true },
+  { id: 3, name: "Intretinere", duration: "2h", price: 220, active: true },
 ];
 
 export const initialClients: Client[] = [
@@ -51,6 +52,7 @@ export const initialAppointments: Appointment[] = [
     price: 350,
     phone: "+40742111222",
     status: "Confirmata",
+    notes: "",
   },
   {
     id: 2,
@@ -63,6 +65,7 @@ export const initialAppointments: Appointment[] = [
     price: 300,
     phone: "+40743123456",
     status: "Reminder maine",
+    notes: "Trimite reminder in seara dinainte.",
   },
   {
     id: 3,
@@ -75,6 +78,7 @@ export const initialAppointments: Appointment[] = [
     price: 220,
     phone: "+40744199887",
     status: "Noua",
+    notes: "",
   },
 ];
 
@@ -105,5 +109,14 @@ export const mapAppointmentRow = (
     price: row.price,
     phone: client?.phone ?? "",
     status: row.status,
+    notes: row.notes ?? "",
   };
 };
+
+export const mapServiceRow = (row: SupabaseServiceRow): Service => ({
+  id: row.id,
+  name: row.name,
+  duration: row.duration,
+  price: row.price,
+  active: row.active ?? true,
+});

@@ -1,7 +1,9 @@
 export type Service = {
+  id: number;
   name: string;
   duration: string;
   price: number;
+  active: boolean;
 };
 
 export type Client = {
@@ -24,6 +26,7 @@ export type Appointment = {
   price: number;
   phone: string;
   status: string;
+  notes: string;
 };
 
 export type SupabaseClientRow = {
@@ -44,6 +47,7 @@ export type SupabaseAppointmentRow = {
   duration: string;
   price: number;
   status: string;
+  notes: string | null;
   clients:
     | {
         name: string;
@@ -54,4 +58,12 @@ export type SupabaseAppointmentRow = {
     phone: string;
       }
     | null;
+};
+
+export type SupabaseServiceRow = {
+  id: number;
+  name: string;
+  duration: string;
+  price: number;
+  active: boolean | null;
 };
