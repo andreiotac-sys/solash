@@ -48,7 +48,7 @@ type OfflineOp =
   | { type: "upsert_service"; record: Service }
   | { type: "delete_service"; id: number };
 
-type TabKey = "home" | "appointments" | "clients" | "settings";
+type TabKey = "home" | "month" | "appointments" | "clients" | "settings";
 type PanelKey = "appointment" | "client";
 
 const todayIso = () => {
@@ -186,6 +186,21 @@ const addDays = (date: string, days: number) => {
   return `${year}-${month}-${day}`;
 };
 
+const monthShift = (monthKey: string, delta: number) => {
+  const date = new Date(`${monthKey}-01T12:00:00`);
+  date.setMonth(date.getMonth() + delta);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  return `${year}-${month}`;
+};
+
+const isoFromDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export default function Home() {
   const appointmentEditorRef = useRef<HTMLElement | null>(null);
   const appointmentFormCardRef = useRef<HTMLDivElement | null>(null);
@@ -237,6 +252,8 @@ export default function Home() {
   const [editingServiceId, setEditingServiceId] = useState<number | null>(null);
   const [clientSearch, setClientSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("toate");
+  const [selectedMonth, setSelectedMonth] = useState(() => todayIso().slice(0, 7));
+  const [showMonthDayView, setShowMonthDayView] = useState(false);
   const [scrollToEditorTick, setScrollToEditorTick] = useState(0);
   const [pushSupported, setPushSupported] = useState(false);
   const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(
@@ -427,9 +444,11 @@ export default function Home() {
 
       const nextClients = clientsResponse.data.map(mapClientRow as (row: SupabaseClientRow) => Client);
       const nextAppointments = appointmentRows.map(mapAppointmentRow);
-      const nextServices =
-        hasServicesTable && serviceRows.length > 0
-          ? serviceRows.map(mapServiceRow)
+      const localServices = readLocalStore().services;
+      const nextServices = hasServicesTable
+        ? serviceRows.map(mapServiceRow)
+        : localServices.length > 0
+          ? localServices
           : baseServices;
 
       setSupportsServicesTable(hasServicesTable);
@@ -486,6 +505,10 @@ export default function Home() {
 
     return () => window.cancelAnimationFrame(first);
   }, [activePanel, scrollToEditorTick]);
+
+  useEffect(() => {
+    setSelectedMonth(toMonthKey(appointmentDate));
+  }, [appointmentDate]);
 
   const selectedClient = useMemo(
     () => clients.find((client) => client.id === selectedClientId) ?? clients[0],
@@ -582,6 +605,79 @@ export default function Home() {
 
   const currentWeekKey = toWeekKey(appointmentDate);
   const currentMonthKey = toMonthKey(appointmentDate);
+  const monthLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat("ro-RO", {
+        month: "long",
+        year: "numeric",
+      }).format(new Date(`${selectedMonth}-01T12:00:00`)),
+    [selectedMonth]
+  );
+
+  const calendarDayStats = useMemo(() => {
+    const stats = new Map<string, { count: number; busyMinutes: number }>();
+    for (const appointment of appointments) {
+      if (appointment.status === "Anulata") {
+        continue;
+      }
+      const minutes = parseDurationToMinutes(appointment.duration);
+      const current = stats.get(appointment.date) ?? { count: 0, busyMinutes: 0 };
+      current.count += 1;
+      current.busyMinutes += minutes;
+      stats.set(appointment.date, current);
+    }
+    return stats;
+  }, [appointments]);
+
+  const calendarCapacity = useMemo(() => {
+    const workdayMinutes = WORKDAY_END_MINUTES - WORKDAY_START_MINUTES;
+    const serviceDurations = activeServices
+      .map((service) => parseDurationToMinutes(service.duration))
+      .filter((minutes) => minutes > 0);
+    const rawSlot = serviceDurations.length > 0 ? Math.min(...serviceDurations) : 120;
+    const slotMinutes = Math.max(30, rawSlot);
+    return {
+      workdayMinutes,
+      slotMinutes,
+      maxAppointments: Math.max(1, Math.floor(workdayMinutes / slotMinutes)),
+    };
+  }, [activeServices]);
+
+  const monthGridDays = useMemo(() => {
+    const monthStart = new Date(`${selectedMonth}-01T12:00:00`);
+    const start = new Date(monthStart);
+    const weekday = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - weekday);
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const iso = isoFromDate(date);
+      const stat = calendarDayStats.get(iso) ?? { count: 0, busyMinutes: 0 };
+      const freeMinutes = Math.max(0, calendarCapacity.workdayMinutes - stat.busyMinutes);
+      return {
+        iso,
+        day: date.getDate(),
+        inCurrentMonth: toMonthKey(iso) === selectedMonth,
+        isSelected: iso === appointmentDate,
+        count: stat.count,
+        busyMinutes: stat.busyMinutes,
+        freeMinutes,
+        slotsLeft: Math.max(0, Math.floor(freeMinutes / calendarCapacity.slotMinutes)),
+      };
+    });
+  }, [appointmentDate, calendarCapacity, calendarDayStats, selectedMonth]);
+
+  const monthQuickPicks = useMemo(
+    () => [
+      monthShift(selectedMonth, -2),
+      monthShift(selectedMonth, -1),
+      selectedMonth,
+      monthShift(selectedMonth, 1),
+      monthShift(selectedMonth, 2),
+    ],
+    [selectedMonth]
+  );
 
   const dailyRevenue = appointmentsForSelectedDate
     .filter((appointment) => appointment.status !== "Anulata")
@@ -1689,9 +1785,20 @@ export default function Home() {
       return;
     }
 
-    const { error } = await supabase.from("services").delete().eq("id", serviceId);
-    if (error) {
+    const response = await supabase
+      .from("services")
+      .delete()
+      .eq("id", serviceId)
+      .select("id");
+    if (response.error) {
       setToast({ text: "Nu am putut sterge serviciul.", type: "error" });
+      return;
+    }
+    if (!response.data || response.data.length === 0) {
+      setToast({
+        text: "Serviciul nu a fost sters in Supabase (verifica drepturile RLS).",
+        type: "error",
+      });
       return;
     }
 
@@ -1998,6 +2105,196 @@ export default function Home() {
               </div>
             </section>
           </>
+        ) : null}
+
+        {activeTab === "month" ? (
+          <section className="mt-6">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold capitalize">{monthLabel}</h2>
+              <span className="text-xs text-muted">
+                max {calendarCapacity.maxAppointments} programari/zi
+              </span>
+            </div>
+
+            <div className="mb-3 grid grid-cols-3 gap-3">
+              <button
+                className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
+                onClick={() => {
+                  setSelectedMonth(monthShift(selectedMonth, -1));
+                  setShowMonthDayView(false);
+                }}
+                type="button"
+              >
+                Luna trecuta
+              </button>
+              <button
+                className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
+                onClick={() => {
+                  setSelectedMonth(toMonthKey(todayIso()));
+                  setShowMonthDayView(false);
+                }}
+                type="button"
+              >
+                Luna curenta
+              </button>
+              <button
+                className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
+                onClick={() => {
+                  setSelectedMonth(monthShift(selectedMonth, 1));
+                  setShowMonthDayView(false);
+                }}
+                type="button"
+              >
+                Luna viitoare
+              </button>
+            </div>
+
+            <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+              {monthQuickPicks.map((month) => (
+                <button
+                  key={month}
+                  className={`rounded-[8px] border px-3 py-2 text-xs whitespace-nowrap ${
+                    month === selectedMonth
+                      ? "border-gold bg-gold text-black"
+                      : "border-line bg-panel text-muted"
+                  }`}
+                  onClick={() => {
+                    setSelectedMonth(month);
+                    setShowMonthDayView(false);
+                  }}
+                  type="button"
+                >
+                  {new Intl.DateTimeFormat("ro-RO", {
+                    month: "short",
+                    year: "2-digit",
+                  }).format(new Date(`${month}-01T12:00:00`))}
+                </button>
+              ))}
+            </div>
+
+            {showMonthDayView ? (
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <button
+                    className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
+                    onClick={() => setShowMonthDayView(false)}
+                    type="button"
+                  >
+                    Inapoi la luna
+                  </button>
+                  <p className="text-sm capitalize text-muted">{humanDate(appointmentDate)}</p>
+                </div>
+
+                <div className="space-y-2">
+                  {dayTimeline.segments.map((segment) =>
+                    segment.kind === "free" ? (
+                      <div
+                        key={`month-free-${segment.start}-${segment.end}`}
+                        className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
+                          <p className="text-xs text-[#96f2c6]">
+                            {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        key={`month-busy-${segment.appointment.id}-${segment.start}`}
+                        className="w-full rounded-[8px] border border-line bg-panel px-3 py-2 text-left"
+                        onClick={() => {
+                          setActiveTab("appointments");
+                          startEditAppointment(segment.appointment);
+                        }}
+                        type="button"
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-foreground">
+                            {segment.appointment.clientName}
+                          </p>
+                          <p className="text-xs text-gold">
+                            {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-xs text-muted">
+                          {segment.appointment.service} • {segment.appointment.status}
+                        </p>
+                      </button>
+                    )
+                  )}
+                </div>
+
+                <div className="mt-4 grid gap-2">
+                  {appointmentsForDayAll.length === 0 ? (
+                    <div className="rounded-[8px] border border-line bg-panel px-3 py-3 text-sm text-muted">
+                      Nu exista programari in ziua asta.
+                    </div>
+                  ) : (
+                    appointmentsForDayAll.map((appointment) => (
+                      <button
+                        key={`month-list-${appointment.id}`}
+                        className="rounded-[8px] border border-line bg-panel px-3 py-3 text-left"
+                        onClick={() => {
+                          setActiveTab("appointments");
+                          startEditAppointment(appointment);
+                        }}
+                        type="button"
+                      >
+                        <p className="text-sm font-semibold">{appointment.clientName}</p>
+                        <p className="mt-1 text-xs text-muted">
+                          {appointment.start} • {appointment.service} • {appointment.duration}
+                        </p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft p-3">
+                <div className="mb-2 grid grid-cols-7 gap-2">
+                  {["L", "M", "M", "J", "V", "S", "D"].map((label, idx) => (
+                    <p key={`${label}-${idx}`} className="text-center text-xs text-muted">
+                      {label}
+                    </p>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-7 gap-2">
+                  {monthGridDays.map((day) => (
+                    <button
+                      key={day.iso}
+                      className={`rounded-[8px] border px-1.5 py-2 text-left transition ${
+                        day.inCurrentMonth
+                          ? "border-line bg-panel"
+                          : "border-[#2a2a2a] bg-black/40"
+                      } ${day.isSelected ? "border-gold" : ""}`}
+                      onClick={() => {
+                        setAppointmentDate(day.iso);
+                        setSelectedMonth(toMonthKey(day.iso));
+                        setShowMonthDayView(true);
+                      }}
+                      type="button"
+                    >
+                      <p
+                        className={`text-[11px] font-semibold ${
+                          day.inCurrentMonth ? "text-foreground" : "text-muted"
+                        }`}
+                      >
+                        {day.day}
+                      </p>
+                      {day.inCurrentMonth ? (
+                        <>
+                          <p className="mt-1 text-[10px] text-gold">{day.count} ocupate</p>
+                          <p className="text-[10px] text-[#96f2c6]">{day.slotsLeft} libere</p>
+                        </>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
         ) : null}
 
         {activeTab === "appointments" ? (
@@ -2655,13 +2952,14 @@ export default function Home() {
         <nav className="gold-ring fixed inset-x-4 bottom-4 mx-auto flex w-auto max-w-md items-center justify-between rounded-[8px] border border-line bg-black/95 px-2 py-3 backdrop-blur">
           {[
             { label: "Acasa", key: "home" as const },
+            { label: "Luna", key: "month" as const },
             { label: "Programari", key: "appointments" as const },
             { label: "Cliente", key: "clients" as const },
             { label: "Setari", key: "settings" as const },
           ].map(({ label, key }) => (
             <button
               key={label}
-              className={`min-w-[72px] rounded-[8px] px-3 py-2 text-sm font-medium ${
+              className={`min-w-[58px] rounded-[8px] px-2 py-2 text-xs font-medium ${
                 activeTab === key ? "bg-gold text-black" : "text-muted"
               }`}
               onClick={() => setActiveTab(key)}
