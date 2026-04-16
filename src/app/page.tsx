@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { DayPicker } from "react-day-picker";
+import * as XLSX from "xlsx";
 import "react-day-picker/dist/style.css";
 import {
   baseServices,
@@ -1367,24 +1368,6 @@ export default function Home() {
     }
   }, [session?.access_token]);
 
-  const csvEscape = (value: string | number) =>
-    `"${`${value ?? ""}`.replace(/"/g, '""')}"`;
-
-  const csvRow = (values: Array<string | number>) => values.map(csvEscape).join(",");
-
-  const downloadCsv = (filename: string, content: string) => {
-    const normalized = content.replace(/\n/g, "\r\n");
-
-    const blob = new Blob([normalized], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
-  };
-
   const handleExportCsv = async () => {
     setIsExportingCsv(true);
     try {
@@ -1415,24 +1398,41 @@ export default function Home() {
           appointment.notes,
         ]);
 
-      const csvContent = [
-        csvRow(["CLIENTE"]),
-        csvRow(["Nume", "Telefon", "Observatii", "Vizite", "Ultima vizita"]),
-        ...clientsRows.map((row) => csvRow(row)),
-        "",
-        csvRow(["PROGRAMARI"]),
-        csvRow(["Data", "Ora", "Clienta", "Telefon", "Serviciu", "Durata", "Pret", "Status", "Observatii"]),
-        ...appointmentsRows.map((row) => csvRow(row)),
-      ].join("\n");
+      const servicesRows = [...services]
+        .sort((a, b) => a.name.localeCompare(b.name, "ro"))
+        .map((service) => [
+          service.name,
+          service.duration,
+          service.price,
+          service.active ? "Activ" : "Inactiv",
+        ]);
 
-      downloadCsv(`solash-export-${todayIso()}.csv`, csvContent);
+      const workbook = XLSX.utils.book_new();
+      const clientsSheet = XLSX.utils.aoa_to_sheet([
+        ["Nume", "Telefon", "Observatii", "Vizite", "Ultima vizita"],
+        ...clientsRows,
+      ]);
+      const appointmentsSheet = XLSX.utils.aoa_to_sheet([
+        ["Data", "Ora", "Clienta", "Telefon", "Serviciu", "Durata", "Pret", "Status", "Observatii"],
+        ...appointmentsRows,
+      ]);
+      const servicesSheet = XLSX.utils.aoa_to_sheet([
+        ["Serviciu", "Durata", "Pret", "Status"],
+        ...servicesRows,
+      ]);
+
+      XLSX.utils.book_append_sheet(workbook, clientsSheet, "Cliente");
+      XLSX.utils.book_append_sheet(workbook, appointmentsSheet, "Programari");
+      XLSX.utils.book_append_sheet(workbook, servicesSheet, "Servicii");
+
+      XLSX.writeFile(workbook, `solash-export-${todayIso()}.xlsx`);
 
       setToast({
-        text: "Am exportat CSV complet (cliente + programari).",
+        text: "Am exportat fisier Excel cu 3 sheet-uri: Cliente, Programari, Servicii.",
         type: "success",
       });
     } catch {
-      setToast({ text: "Nu am putut exporta CSV.", type: "error" });
+      setToast({ text: "Nu am putut exporta fisierul Excel.", type: "error" });
     } finally {
       setIsExportingCsv(false);
     }
@@ -3189,9 +3189,9 @@ export default function Home() {
             </div>
 
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Export date (CSV)</p>
+              <p className="text-sm font-semibold">Export date (Excel)</p>
               <p className="mt-2 text-sm text-[#ddd4c5]">
-                Descarca rapid clientele si programarile pentru backup.
+                Descarca un fisier Excel cu sheet-uri separate pentru cliente, programari si servicii.
               </p>
               <button
                 className="mt-3 w-full rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
@@ -3199,7 +3199,7 @@ export default function Home() {
                 onClick={() => void handleExportCsv()}
                 type="button"
               >
-                {isExportingCsv ? "Se exporta..." : "Exporta CSV (cliente + programari)"}
+                {isExportingCsv ? "Se exporta..." : "Exporta Excel (3 sheet-uri)"}
               </button>
             </div>
 
