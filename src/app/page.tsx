@@ -27,13 +27,26 @@ import type {
 
 const STORAGE_KEY = "solash-demo-store";
 const OFFLINE_QUEUE_KEY = "solash-offline-queue";
+const BUSINESS_SETTINGS_KEY = "solash-business-settings";
 const APPOINTMENT_SELECT_WITH_NOTES =
   "id, client_id, service, appointment_date, start_time, duration, price, status, notes, clients(name, phone)";
 const APPOINTMENT_SELECT_WITHOUT_NOTES =
   "id, client_id, service, appointment_date, start_time, duration, price, status, clients(name, phone)";
-const WORKDAY_START_MINUTES = 8 * 60;
-const WORKDAY_END_MINUTES = 21 * 60;
+const DEFAULT_DAY_START = "08:00";
+const DEFAULT_DAY_END = "21:00";
+const DEFAULT_BREAK_START = "13:00";
+const DEFAULT_BREAK_END = "14:00";
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
+
+const WEEK_DAYS = [
+  { key: 0, label: "Luni" },
+  { key: 1, label: "Marti" },
+  { key: 2, label: "Miercuri" },
+  { key: 3, label: "Joi" },
+  { key: 4, label: "Vineri" },
+  { key: 5, label: "Sambata" },
+  { key: 6, label: "Duminica" },
+] as const;
 
 type LocalStore = {
   appointments: Appointment[];
@@ -59,6 +72,22 @@ type PushLog = {
   sent_count: number;
   reminders_count: number;
   created_at: string;
+};
+type SaveWarning = {
+  title: string;
+  details: string[];
+};
+type DayBusinessSettings = {
+  enabled: boolean;
+  start: string;
+  end: string;
+  breakStart: string;
+  breakEnd: string;
+};
+
+type BusinessSettings = {
+  schedule: Record<number, DayBusinessSettings>;
+  daysOff: string[];
 };
 
 const todayIso = () => {
@@ -100,6 +129,36 @@ const formatShortDate = (value: string) =>
     year: "numeric",
   }).format(new Date(`${value}T12:00:00`));
 
+const fullDateLabel = (value: string) =>
+  new Intl.DateTimeFormat("ro-RO", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(`${value}T12:00:00`));
+
+const daysBetween = (fromDateIso: string, toDateIso: string) => {
+  const from = new Date(`${fromDateIso}T12:00:00`).getTime();
+  const to = new Date(`${toDateIso}T12:00:00`).getTime();
+  return Math.round((to - from) / 86400000);
+};
+
+const daysToHuman = (days: number) => {
+  if (days % 7 === 0) {
+    const weeks = Math.floor(days / 7);
+    if (weeks === 1) {
+      return "1 saptamana";
+    }
+    return `${weeks} saptamani`;
+  }
+  if (days === 1) {
+    return "1 zi";
+  }
+  return `${days} zile`;
+};
+
+const reservationCountLabel = (count: number) =>
+  `${count} rez.`;
+
 const parseDurationToMinutes = (value: string) => {
   const normalized = value.trim().toLowerCase();
   const hourMatch = normalized.match(/(\d+)\s*h/);
@@ -124,6 +183,74 @@ const minutesToTime = (total: number) => {
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
   return `${`${hours}`.padStart(2, "0")}:${`${minutes}`.padStart(2, "0")}`;
+};
+
+const dateToWeekdayKey = (isoDate: string) =>
+  (new Date(`${isoDate}T12:00:00`).getDay() + 6) % 7;
+
+const getWorkWindowsForDate = (isoDate: string, settings: BusinessSettings) => {
+  if (settings.daysOff.includes(isoDate)) {
+    return [];
+  }
+
+  const weekdayKey = dateToWeekdayKey(isoDate);
+  const day = settings.schedule[weekdayKey];
+  if (!day || !day.enabled) {
+    return [];
+  }
+
+  const start = timeToMinutes(day.start);
+  const end = timeToMinutes(day.end);
+  if (end <= start) {
+    return [];
+  }
+
+  const breakStart = timeToMinutes(day.breakStart);
+  const breakEnd = timeToMinutes(day.breakEnd);
+  const hasValidBreak =
+    breakEnd > breakStart && breakStart > start && breakEnd < end;
+
+  if (!hasValidBreak) {
+    return [{ start, end }];
+  }
+
+  const windows: Array<{ start: number; end: number }> = [];
+  if (breakStart > start) {
+    windows.push({ start, end: breakStart });
+  }
+  if (end > breakEnd) {
+    windows.push({ start: breakEnd, end });
+  }
+  return windows;
+};
+
+const getOverlapMinutesInWindows = (
+  intervalStart: number,
+  intervalEnd: number,
+  windows: Array<{ start: number; end: number }>
+) =>
+  windows.reduce((sum, windowRange) => {
+    const start = Math.max(intervalStart, windowRange.start);
+    const end = Math.min(intervalEnd, windowRange.end);
+    if (end <= start) {
+      return sum;
+    }
+    return sum + (end - start);
+  }, 0);
+
+const SERVICE_COLORS = [
+  { border: "border-[#8f6b2f]", bg: "bg-[#fff8e7]", name: "text-[#1f1a12]", meta: "text-[#6b5426]" },
+  { border: "border-[#6b4a93]", bg: "bg-[#f5efff]", name: "text-[#221535]", meta: "text-[#5c3c86]" },
+  { border: "border-[#2f6f8f]", bg: "bg-[#edf8ff]", name: "text-[#132733]", meta: "text-[#2f6f8f]" },
+  { border: "border-[#3d8b65]", bg: "bg-[#ecfff5]", name: "text-[#11281f]", meta: "text-[#2e7253]" },
+] as const;
+
+const serviceColorClasses = (serviceName: string) => {
+  let hash = 0;
+  for (let index = 0; index < serviceName.length; index += 1) {
+    hash = (hash * 31 + serviceName.charCodeAt(index)) >>> 0;
+  }
+  return SERVICE_COLORS[hash % SERVICE_COLORS.length];
 };
 
 const base64ToUint8Array = (value: string) => {
@@ -161,6 +288,92 @@ const statusBadgeClass = (status: string) => {
     return "bg-[#4a1f1f] text-[#ffc7c7]";
   }
   return "bg-black text-gold";
+};
+
+const defaultSchedule = () =>
+  WEEK_DAYS.reduce<Record<number, DayBusinessSettings>>((acc, day) => {
+    acc[day.key] = {
+      enabled: day.key !== 6,
+      start: DEFAULT_DAY_START,
+      end: DEFAULT_DAY_END,
+      breakStart: DEFAULT_BREAK_START,
+      breakEnd: DEFAULT_BREAK_END,
+    };
+    return acc;
+  }, {});
+
+const defaultBusinessSettings = (): BusinessSettings => ({
+  schedule: defaultSchedule(),
+  daysOff: [],
+});
+
+const normalizeTimeInput = (value: string, fallback: string) => {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return fallback;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return fallback;
+  }
+  return `${`${hours}`.padStart(2, "0")}:${`${minutes}`.padStart(2, "0")}`;
+};
+
+const normalizeBusinessSettings = (input?: Partial<BusinessSettings> | null): BusinessSettings => {
+  const fallback = defaultBusinessSettings();
+  const schedule = defaultSchedule();
+  const providedSchedule = input?.schedule ?? {};
+  for (const day of WEEK_DAYS) {
+    const nextDay = providedSchedule[day.key];
+    if (!nextDay) {
+      continue;
+    }
+    schedule[day.key] = {
+      enabled: typeof nextDay.enabled === "boolean" ? nextDay.enabled : fallback.schedule[day.key].enabled,
+      start: normalizeTimeInput(nextDay.start, fallback.schedule[day.key].start),
+      end: normalizeTimeInput(nextDay.end, fallback.schedule[day.key].end),
+      breakStart: normalizeTimeInput(nextDay.breakStart, fallback.schedule[day.key].breakStart),
+      breakEnd: normalizeTimeInput(nextDay.breakEnd, fallback.schedule[day.key].breakEnd),
+    };
+  }
+  const rawDaysOff = Array.isArray(input?.daysOff) ? input?.daysOff : [];
+  const daysOff = rawDaysOff
+    .map((item) => item.trim())
+    .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item));
+  return { schedule, daysOff };
+};
+
+const readBusinessSettings = (): BusinessSettings => {
+  if (typeof window === "undefined") {
+    return defaultBusinessSettings();
+  }
+
+  const raw = window.localStorage.getItem(BUSINESS_SETTINGS_KEY);
+  if (!raw) {
+    return defaultBusinessSettings();
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<BusinessSettings>;
+    return normalizeBusinessSettings(parsed);
+  } catch {
+    return defaultBusinessSettings();
+  }
+};
+
+const writeBusinessSettings = (settings: BusinessSettings) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(BUSINESS_SETTINGS_KEY, JSON.stringify(settings));
 };
 
 const defaultStore = (): LocalStore => ({
@@ -316,8 +529,15 @@ export default function Home() {
   const [pushBusy, setPushBusy] = useState(false);
   const [pushTestBusy, setPushTestBusy] = useState(false);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [isRunningCloudBackup, setIsRunningCloudBackup] = useState(false);
+  const [lastBackupPath, setLastBackupPath] = useState("");
   const [pushLogs, setPushLogs] = useState<PushLog[]>([]);
   const [isLoadingPushLogs, setIsLoadingPushLogs] = useState(false);
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(() =>
+    readBusinessSettings()
+  );
+  const [daysOffInput, setDaysOffInput] = useState(() => readBusinessSettings().daysOff.join(", "));
+  const [saveWarning, setSaveWarning] = useState<SaveWarning | null>(null);
   const [toast, setToast] = useState<{
     text: string;
     type: "success" | "error";
@@ -594,6 +814,11 @@ export default function Home() {
     [appointmentDate, appointments]
   );
 
+  const workWindowsForSelectedDate = useMemo(
+    () => getWorkWindowsForDate(appointmentDate, businessSettings),
+    [appointmentDate, businessSettings]
+  );
+
   const dayTimeline = useMemo(() => {
     const active = appointmentsForDayAll.filter(
       (appointment) => appointment.status !== "Anulata"
@@ -608,27 +833,26 @@ export default function Home() {
           appointment: Appointment;
         }
     > = [];
-
-    let cursor = WORKDAY_START_MINUTES;
-
-    for (const appointment of active) {
-      const start = Math.max(WORKDAY_START_MINUTES, timeToMinutes(appointment.start));
-      const end = Math.min(
-        WORKDAY_END_MINUTES,
-        start + parseDurationToMinutes(appointment.duration)
-      );
-      if (end <= WORKDAY_START_MINUTES || start >= WORKDAY_END_MINUTES) {
-        continue;
-      }
-      if (start > cursor) {
-        segments.push({
-          kind: "free",
-          start: cursor,
-          end: start,
-          minutes: start - cursor,
-        });
-      }
-      if (end > start) {
+    const windows = workWindowsForSelectedDate;
+    const busyById = new Set<number>();
+    for (const windowRange of windows) {
+      let cursor = windowRange.start;
+      for (const appointment of active) {
+        const appointmentStart = timeToMinutes(appointment.start);
+        const appointmentEnd = appointmentStart + parseDurationToMinutes(appointment.duration);
+        const start = Math.max(windowRange.start, appointmentStart);
+        const end = Math.min(windowRange.end, appointmentEnd);
+        if (end <= start) {
+          continue;
+        }
+        if (start > cursor) {
+          segments.push({
+            kind: "free",
+            start: cursor,
+            end: start,
+            minutes: start - cursor,
+          });
+        }
         segments.push({
           kind: "busy",
           start,
@@ -636,29 +860,35 @@ export default function Home() {
           minutes: end - start,
           appointment,
         });
+        busyById.add(appointment.id);
+        cursor = Math.max(cursor, end);
       }
-      cursor = Math.max(cursor, end);
-    }
-
-    if (cursor < WORKDAY_END_MINUTES) {
-      segments.push({
-        kind: "free",
-        start: cursor,
-        end: WORKDAY_END_MINUTES,
-        minutes: WORKDAY_END_MINUTES - cursor,
-      });
+      if (cursor < windowRange.end) {
+        segments.push({
+          kind: "free",
+          start: cursor,
+          end: windowRange.end,
+          minutes: windowRange.end - cursor,
+        });
+      }
     }
 
     const totalFreeMinutes = segments
       .filter((segment) => segment.kind === "free")
       .reduce((sum, segment) => sum + segment.minutes, 0);
 
+    const totalWorkMinutes = windows.reduce((sum, windowRange) => {
+      return sum + (windowRange.end - windowRange.start);
+    }, 0);
+
     return {
       segments,
       totalFreeMinutes,
-      activeCount: active.length,
+      totalWorkMinutes,
+      activeCount: busyById.size,
+      isDayOff: windows.length === 0,
     };
-  }, [appointmentsForDayAll]);
+  }, [appointmentsForDayAll, workWindowsForSelectedDate]);
 
   const currentWeekKey = toWeekKey(appointmentDate);
   const currentMonthKey = toMonthKey(appointmentDate);
@@ -681,28 +911,17 @@ export default function Home() {
       if (appointment.status === "Anulata") {
         continue;
       }
-      const minutes = parseDurationToMinutes(appointment.duration);
+      const windows = getWorkWindowsForDate(appointment.date, businessSettings);
+      const start = timeToMinutes(appointment.start);
+      const end = start + parseDurationToMinutes(appointment.duration);
+      const minutes = getOverlapMinutesInWindows(start, end, windows);
       const current = stats.get(appointment.date) ?? { count: 0, busyMinutes: 0 };
       current.count += 1;
       current.busyMinutes += minutes;
       stats.set(appointment.date, current);
     }
     return stats;
-  }, [appointments]);
-
-  const calendarCapacity = useMemo(() => {
-    const workdayMinutes = WORKDAY_END_MINUTES - WORKDAY_START_MINUTES;
-    const serviceDurations = activeServices
-      .map((service) => parseDurationToMinutes(service.duration))
-      .filter((minutes) => minutes > 0);
-    const rawSlot = serviceDurations.length > 0 ? Math.min(...serviceDurations) : 120;
-    const slotMinutes = Math.max(30, rawSlot);
-    return {
-      workdayMinutes,
-      slotMinutes,
-      maxAppointments: Math.max(1, Math.floor(workdayMinutes / slotMinutes)),
-    };
-  }, [activeServices]);
+  }, [appointments, businessSettings]);
 
   const monthGridDays = useMemo(() => {
     const monthStart = new Date(`${selectedMonth}-01T12:00:00`);
@@ -715,7 +934,6 @@ export default function Home() {
       date.setDate(start.getDate() + index);
       const iso = isoFromDate(date);
       const stat = calendarDayStats.get(iso) ?? { count: 0, busyMinutes: 0 };
-      const freeMinutes = Math.max(0, calendarCapacity.workdayMinutes - stat.busyMinutes);
       return {
         iso,
         day: date.getDate(),
@@ -723,11 +941,9 @@ export default function Home() {
         isSelected: iso === appointmentDate,
         count: stat.count,
         busyMinutes: stat.busyMinutes,
-        freeMinutes,
-        slotsLeft: Math.max(0, Math.floor(freeMinutes / calendarCapacity.slotMinutes)),
       };
     });
-  }, [appointmentDate, calendarCapacity, calendarDayStats, selectedMonth]);
+  }, [appointmentDate, calendarDayStats, selectedMonth]);
 
   const monthQuickPicks = useMemo(
     () => [
@@ -1109,6 +1325,10 @@ export default function Home() {
     writeLocalStore({ clients, appointments, services });
   }, [clients, appointments, services]);
 
+  useEffect(() => {
+    writeBusinessSettings(businessSettings);
+  }, [businessSettings]);
+
   const resetAppointmentForm = (service?: Service) => {
     const source = service ?? activeServices[0] ?? services[0] ?? baseServices[0];
     setEditingAppointmentId(null);
@@ -1147,6 +1367,43 @@ export default function Home() {
     setAppointmentPrice(service.price);
   };
 
+  const updateBusinessDay = (
+    dayKey: number,
+    patch: Partial<DayBusinessSettings>
+  ) => {
+    setBusinessSettings((current) => ({
+      ...current,
+      schedule: {
+        ...current.schedule,
+        [dayKey]: {
+          ...current.schedule[dayKey],
+          ...patch,
+        },
+      },
+    }));
+  };
+
+  const applyDaysOffInput = () => {
+    const values = daysOffInput
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    const valid = values.filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item));
+    if (valid.length !== values.length) {
+      setToast({
+        text: "Format invalid pentru zile libere. Foloseste YYYY-MM-DD, separate prin virgula.",
+        type: "error",
+      });
+      return;
+    }
+    setBusinessSettings((current) => ({
+      ...current,
+      daysOff: [...new Set(valid)],
+    }));
+    setDaysOffInput([...new Set(valid)].join(", "));
+    setToast({ text: "Zilele libere au fost actualizate.", type: "success" });
+  };
+
   const hasConflict = (
     id: number | null,
     newStart: string,
@@ -1169,6 +1426,66 @@ export default function Home() {
       const end = start + parseDurationToMinutes(appointment.duration);
       return newStartMin < end && newEndMin > start;
     });
+  };
+
+  const buildReservationWarning = () => {
+    if (!selectedClient) {
+      return null;
+    }
+
+    const related = appointments
+      .filter(
+        (appointment) =>
+          appointment.clientId === selectedClient.id &&
+          appointment.id !== editingAppointmentId &&
+          appointment.status !== "Anulata"
+      )
+      .sort((a, b) =>
+        a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)
+      );
+
+    if (related.length === 0) {
+      return null;
+    }
+
+    const windowDays = 21;
+    const pastCandidate = [...related]
+      .reverse()
+      .find((appointment) => {
+        const diff = daysBetween(appointment.date, appointmentDate);
+        return diff > 0 && diff <= windowDays;
+      });
+    const futureCandidate = related.find((appointment) => {
+      const diff = daysBetween(appointmentDate, appointment.date);
+      return diff > 0 && diff <= windowDays;
+    });
+
+    const details: string[] = [];
+    if (pastCandidate) {
+      const days = daysBetween(pastCandidate.date, appointmentDate);
+      details.push(
+        `Clienta a avut o rezervare cu ${daysToHuman(days)} in urma (${fullDateLabel(
+          pastCandidate.date
+        )}, ${pastCandidate.start}), iar rezervarea de atunci a fost: ${pastCandidate.service}.`
+      );
+    }
+    if (futureCandidate) {
+      const days = daysBetween(appointmentDate, futureCandidate.date);
+      details.push(
+        `Clienta mai are o rezervare peste ${daysToHuman(days)} (${fullDateLabel(
+          futureCandidate.date
+        )}, ${futureCandidate.start}). Tip programare: ${futureCandidate.service}.`
+      );
+    }
+
+    if (details.length === 0) {
+      return null;
+    }
+
+    return {
+      title: "Atentie la intervalul programarilor",
+      details,
+    } as SaveWarning;
   };
 
   const handleAuth = async () => {
@@ -1374,6 +1691,45 @@ export default function Home() {
       setIsLoadingPushLogs(false);
     }
   }, [session?.access_token]);
+
+  const handleRunCloudBackup = async () => {
+    if (!session?.access_token) {
+      setToast({ text: "Trebuie sa fii autentificata pentru backup cloud.", type: "error" });
+      return;
+    }
+    setIsRunningCloudBackup(true);
+    try {
+      const response = await fetch("/api/backups/run", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      const result = (await response.json()) as {
+        ok: boolean;
+        path?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error ?? "Backup failed");
+      }
+      setLastBackupPath(result.path ?? "");
+      setToast({
+        text: "Backup cloud creat cu succes.",
+        type: "success",
+      });
+    } catch (error) {
+      setToast({
+        text:
+          error instanceof Error && error.message
+            ? error.message
+            : "Nu am putut crea backup-ul cloud.",
+        type: "error",
+      });
+    } finally {
+      setIsRunningCloudBackup(false);
+    }
+  };
 
   const handleExportCsv = async () => {
     setIsExportingCsv(true);
@@ -1654,7 +2010,7 @@ export default function Home() {
     setToast({ text: "Clienta a fost stearsa.", type: "success" });
   };
 
-  const handleSaveAppointment = async () => {
+  const handleSaveAppointment = async (skipWarning = false) => {
     if (!selectedClient) {
       setToast({ text: "Adauga mai intai o clienta.", type: "error" });
       return;
@@ -1682,6 +2038,14 @@ export default function Home() {
         type: "error",
       });
       return;
+    }
+
+    if (!skipWarning) {
+      const warning = buildReservationWarning();
+      if (warning) {
+        setSaveWarning(warning);
+        return;
+      }
     }
 
     setIsSavingAppointment(true);
@@ -1737,6 +2101,7 @@ export default function Home() {
         type: "success",
       });
       resetAppointmentForm(service);
+      setSaveWarning(null);
       setIsSavingAppointment(false);
       setActiveTab("home");
       return;
@@ -1790,6 +2155,7 @@ export default function Home() {
           type: "success",
         });
         resetAppointmentForm(service);
+        setSaveWarning(null);
         setIsSavingAppointment(false);
         setActiveTab("home");
         return;
@@ -1851,6 +2217,7 @@ export default function Home() {
     }
 
     resetAppointmentForm(service);
+    setSaveWarning(null);
     setIsSavingAppointment(false);
     setActiveTab("home");
   };
@@ -2321,6 +2688,38 @@ export default function Home() {
           </div>
         ) : null}
 
+        {saveWarning ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+            <div className="gold-ring w-full max-w-sm rounded-[8px] border border-line bg-panel p-5">
+              <p className="text-base font-semibold text-gold-strong">{saveWarning.title}</p>
+              <div className="mt-3 grid gap-2">
+                {saveWarning.details.map((detail, index) => (
+                  <p key={`${detail}-${index}`} className="text-sm leading-6 text-[#ddd4c5]">
+                    {detail}
+                  </p>
+                ))}
+              </div>
+              <p className="mt-3 text-sm text-muted">Esti sigura ca vrei sa salvezi programarea?</p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button
+                  className="rounded-[8px] border border-line bg-panel px-4 py-3 text-sm font-medium"
+                  onClick={() => setSaveWarning(null)}
+                  type="button"
+                >
+                  Nu
+                </button>
+                <button
+                  className="rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black"
+                  onClick={() => void handleSaveAppointment(true)}
+                  type="button"
+                >
+                  Da, salveaza
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {activeTab === "home" ? (
           <>
             <section className="mt-6" ref={appointmentEditorRef}>
@@ -2425,40 +2824,53 @@ export default function Home() {
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
                 <div className="space-y-2">
-                  {dayTimeline.segments.map((segment) =>
-                    segment.kind === "free" ? (
-                      <div
-                        key={`home-free-${segment.start}-${segment.end}`}
-                        className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
-                          <p className="text-xs text-[#96f2c6]">
-                            {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                  {dayTimeline.segments.length > 0 ? (
+                    dayTimeline.segments.map((segment) =>
+                      segment.kind === "free" ? (
+                        <div
+                          key={`home-free-${segment.start}-${segment.end}`}
+                          className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
+                            <p className="text-xs text-[#96f2c6]">
+                              {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                            </p>
+                          </div>
+                          <p className="mt-1 text-xs text-[#96f2c6]">
+                            {Math.floor(segment.minutes / 60)}h {segment.minutes % 60}m disponibil
                           </p>
                         </div>
-                        <p className="mt-1 text-xs text-[#96f2c6]">
-                          {Math.floor(segment.minutes / 60)}h {segment.minutes % 60}m disponibil
-                        </p>
-                      </div>
-                    ) : (
-                      <div
-                        key={`home-busy-${segment.appointment.id}-${segment.start}`}
-                        className="rounded-[8px] border border-[#d4b578] bg-[#fffaf0] px-3 py-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-[#1f1a12]">
-                            {segment.appointment.clientName}
-                          </p>
-                          <p className="text-xs text-[#7c5d1f]">
-                            {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
-                          </p>
-                        </div>
-                        <p className="mt-1 text-xs text-[#5f5648]">
-                          {segment.appointment.service} • {segment.appointment.status}
-                        </p>
-                      </div>
+                      ) : (
+                        (() => {
+                          const serviceColors = serviceColorClasses(segment.appointment.service);
+                          return (
+                            <div
+                              key={`home-busy-${segment.appointment.id}-${segment.start}`}
+                              className={`rounded-[8px] border px-3 py-2 ${serviceColors.border} ${serviceColors.bg}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <p className={`text-sm font-semibold ${serviceColors.name}`}>
+                                  {segment.appointment.clientName}
+                                </p>
+                                <p className={`text-xs ${serviceColors.meta}`}>
+                                  {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                                </p>
+                              </div>
+                              <p className={`mt-1 text-xs ${serviceColors.meta}`}>
+                                {segment.appointment.service} • {segment.appointment.status}
+                              </p>
+                            </div>
+                          );
+                        })()
+                      )
                     )
+                  ) : (
+                    <div className="rounded-[8px] border border-line bg-panel px-3 py-3 text-sm text-muted">
+                      {dayTimeline.isDayOff
+                        ? "Zi libera sau in afara programului setat."
+                        : "Nu exista intervale pentru ziua selectata."}
+                    </div>
                   )}
                 </div>
               </div>
@@ -2470,9 +2882,7 @@ export default function Home() {
           <section className="mt-6">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold capitalize">{monthLabel}</h2>
-              <span className="text-sm text-muted">
-                max {calendarCapacity.maxAppointments} programari/zi
-              </span>
+              <span className="text-sm text-muted">apasare pe zi pentru detalii</span>
             </div>
 
             <div className="mb-3 grid grid-cols-3 gap-3">
@@ -2545,42 +2955,55 @@ export default function Home() {
                 </div>
 
                 <div className="space-y-2">
-                  {dayTimeline.segments.map((segment) =>
-                    segment.kind === "free" ? (
-                      <div
-                        key={`month-free-${segment.start}-${segment.end}`}
-                        className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
-                          <p className="text-xs text-[#96f2c6]">
-                            {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
-                          </p>
+                  {dayTimeline.segments.length > 0 ? (
+                    dayTimeline.segments.map((segment) =>
+                      segment.kind === "free" ? (
+                        <div
+                          key={`month-free-${segment.start}-${segment.end}`}
+                          className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
+                            <p className="text-xs text-[#96f2c6]">
+                              {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <button
-                        key={`month-busy-${segment.appointment.id}-${segment.start}`}
-                        className="w-full rounded-[8px] border border-[#d4b578] bg-[#fffaf0] px-3 py-2 text-left"
-                        onClick={() => {
-                          setActiveTab("appointments");
-                          startEditAppointment(segment.appointment);
-                        }}
-                        type="button"
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-[#1f1a12]">
-                            {segment.appointment.clientName}
-                          </p>
-                          <p className="text-xs text-[#7c5d1f]">
-                            {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
-                          </p>
-                        </div>
-                        <p className="mt-1 text-xs text-[#5f5648]">
-                          {segment.appointment.service} • {segment.appointment.status}
-                        </p>
-                      </button>
+                      ) : (
+                        (() => {
+                          const serviceColors = serviceColorClasses(segment.appointment.service);
+                          return (
+                            <button
+                              key={`month-busy-${segment.appointment.id}-${segment.start}`}
+                              className={`w-full rounded-[8px] border px-3 py-2 text-left ${serviceColors.border} ${serviceColors.bg}`}
+                              onClick={() => {
+                                setActiveTab("appointments");
+                                startEditAppointment(segment.appointment);
+                              }}
+                              type="button"
+                            >
+                              <div className="flex items-center justify-between">
+                                <p className={`text-sm font-semibold ${serviceColors.name}`}>
+                                  {segment.appointment.clientName}
+                                </p>
+                                <p className={`text-xs ${serviceColors.meta}`}>
+                                  {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                                </p>
+                              </div>
+                              <p className={`mt-1 text-xs ${serviceColors.meta}`}>
+                                {segment.appointment.service} • {segment.appointment.status}
+                              </p>
+                            </button>
+                          );
+                        })()
+                      )
                     )
+                  ) : (
+                    <div className="rounded-[8px] border border-line bg-panel px-3 py-3 text-sm text-muted">
+                      {dayTimeline.isDayOff
+                        ? "Zi libera sau in afara programului setat."
+                        : "Nu exista intervale pentru ziua selectata."}
+                    </div>
                   )}
                 </div>
 
@@ -2623,11 +3046,11 @@ export default function Home() {
                   {monthGridDays.map((day) => (
                     <button
                       key={day.iso}
-                      className={`rounded-[8px] border px-1.5 py-2 text-left transition ${
+                      className={`h-24 rounded-[8px] border px-1.5 py-2 text-left transition ${
                         day.inCurrentMonth
                           ? "border-line bg-panel"
                           : "border-[#2a2a2a] bg-black/40"
-                      } ${day.isSelected ? "border-gold" : ""}`}
+                      } ${day.isSelected ? "border-gold" : ""} flex flex-col`}
                       onClick={() => {
                         setAppointmentDate(day.iso);
                         setSelectedMonth(toMonthKey(day.iso));
@@ -2643,10 +3066,23 @@ export default function Home() {
                         {day.day}
                       </p>
                       {day.inCurrentMonth ? (
-                        <>
-                          <p className="mt-1 text-xs text-gold">{day.count} ocupate</p>
-                          <p className="text-xs text-[#96f2c6]">{day.slotsLeft} libere</p>
-                        </>
+                        <div className="mt-1 flex flex-1 flex-col">
+                          <div className="grid gap-1">
+                            {Array.from({ length: 6 }, (_, index) => (
+                              <span
+                                key={`${day.iso}-slot-${index}`}
+                                className={`h-1 w-full rounded-[3px] ${
+                                  index < Math.min(day.count, 6)
+                                    ? "bg-gold"
+                                    : "bg-[#2d2d2d]"
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          <p className="mt-auto whitespace-nowrap pt-1 text-[10px] leading-3 text-muted">
+                            {reservationCountLabel(day.count)}
+                          </p>
+                        </div>
                       ) : null}
                     </button>
                   ))}
@@ -2937,40 +3373,53 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {dayTimeline.segments.map((segment) =>
-                    segment.kind === "free" ? (
-                      <div
-                        key={`free-${segment.start}-${segment.end}`}
-                        className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
-                          <p className="text-xs text-[#96f2c6]">
-                            {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                  {dayTimeline.segments.length > 0 ? (
+                    dayTimeline.segments.map((segment) =>
+                      segment.kind === "free" ? (
+                        <div
+                          key={`free-${segment.start}-${segment.end}`}
+                          className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
+                            <p className="text-xs text-[#96f2c6]">
+                              {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                            </p>
+                          </div>
+                          <p className="mt-1 text-xs text-[#96f2c6]">
+                            {Math.floor(segment.minutes / 60)}h {segment.minutes % 60}m disponibil
                           </p>
                         </div>
-                        <p className="mt-1 text-xs text-[#96f2c6]">
-                          {Math.floor(segment.minutes / 60)}h {segment.minutes % 60}m disponibil
-                        </p>
-                      </div>
-                    ) : (
-                      <div
-                        key={`busy-${segment.appointment.id}-${segment.start}`}
-                        className="rounded-[8px] border border-[#d4b578] bg-[#fffaf0] px-3 py-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-[#1f1a12]">
-                            {segment.appointment.clientName}
-                          </p>
-                          <p className="text-xs text-[#7c5d1f]">
-                            {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
-                          </p>
-                        </div>
-                        <p className="mt-1 text-xs text-[#5f5648]">
-                          {segment.appointment.service} • {segment.appointment.status}
-                        </p>
-                      </div>
+                      ) : (
+                        (() => {
+                          const serviceColors = serviceColorClasses(segment.appointment.service);
+                          return (
+                            <div
+                              key={`busy-${segment.appointment.id}-${segment.start}`}
+                              className={`rounded-[8px] border px-3 py-2 ${serviceColors.border} ${serviceColors.bg}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <p className={`text-sm font-semibold ${serviceColors.name}`}>
+                                  {segment.appointment.clientName}
+                                </p>
+                                <p className={`text-xs ${serviceColors.meta}`}>
+                                  {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                                </p>
+                              </div>
+                              <p className={`mt-1 text-xs ${serviceColors.meta}`}>
+                                {segment.appointment.service} • {segment.appointment.status}
+                              </p>
+                            </div>
+                          );
+                        })()
+                      )
                     )
+                  ) : (
+                    <div className="rounded-[8px] border border-line bg-panel px-3 py-3 text-sm text-muted">
+                      {dayTimeline.isDayOff
+                        ? "Zi libera sau in afara programului setat."
+                        : "Nu exista intervale pentru ziua selectata."}
+                    </div>
                   )}
                 </div>
               </div>
@@ -3208,6 +3657,124 @@ export default function Home() {
               >
                 {isExportingCsv ? "Se exporta..." : "Exporta Excel (3 sheet-uri)"}
               </button>
+            </div>
+
+            <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Backup cloud automat</p>
+              <p className="mt-2 text-sm text-[#ddd4c5]">
+                Se face zilnic automat in cloud si poti porni manual backup oricand.
+              </p>
+              <button
+                className="mt-3 w-full rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                disabled={isRunningCloudBackup || !session}
+                onClick={() => void handleRunCloudBackup()}
+                type="button"
+              >
+                {isRunningCloudBackup ? "Se urca backup-ul..." : "Ruleaza backup cloud acum"}
+              </button>
+              {lastBackupPath ? (
+                <p className="mt-2 text-xs text-muted">Ultimul backup: {lastBackupPath}</p>
+              ) : null}
+            </div>
+
+            <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Program business</p>
+              <p className="mt-2 text-sm text-[#ddd4c5]">
+                Setezi programul pe fiecare zi, pauza, plus zile libere individuale.
+              </p>
+              <div className="mt-3 grid gap-3">
+                {WEEK_DAYS.map((day) => {
+                  const settings = businessSettings.schedule[day.key];
+                  return (
+                    <div
+                      key={day.key}
+                      className="rounded-[8px] border border-line bg-black/70 px-3 py-3"
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">{day.label}</p>
+                        <label className="flex items-center gap-2 text-xs text-muted">
+                          <input
+                            checked={settings.enabled}
+                            onChange={(event) =>
+                              updateBusinessDay(day.key, { enabled: event.target.checked })
+                            }
+                            type="checkbox"
+                          />
+                          activ
+                        </label>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="grid gap-1 text-xs text-muted">
+                          <span>Start</span>
+                          <input
+                            className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
+                            disabled={!settings.enabled}
+                            onChange={(event) =>
+                              updateBusinessDay(day.key, { start: event.target.value })
+                            }
+                            type="time"
+                            value={settings.start}
+                          />
+                        </label>
+                        <label className="grid gap-1 text-xs text-muted">
+                          <span>Final</span>
+                          <input
+                            className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
+                            disabled={!settings.enabled}
+                            onChange={(event) =>
+                              updateBusinessDay(day.key, { end: event.target.value })
+                            }
+                            type="time"
+                            value={settings.end}
+                          />
+                        </label>
+                        <label className="grid gap-1 text-xs text-muted">
+                          <span>Pauza start</span>
+                          <input
+                            className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
+                            disabled={!settings.enabled}
+                            onChange={(event) =>
+                              updateBusinessDay(day.key, { breakStart: event.target.value })
+                            }
+                            type="time"
+                            value={settings.breakStart}
+                          />
+                        </label>
+                        <label className="grid gap-1 text-xs text-muted">
+                          <span>Pauza final</span>
+                          <input
+                            className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
+                            disabled={!settings.enabled}
+                            onChange={(event) =>
+                              updateBusinessDay(day.key, { breakEnd: event.target.value })
+                            }
+                            type="time"
+                            value={settings.breakEnd}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4 grid gap-2">
+                <label className="grid gap-2 text-sm">
+                  <span className="text-muted">Zile libere (YYYY-MM-DD, separate prin virgula)</span>
+                  <input
+                    className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                    onChange={(event) => setDaysOffInput(event.target.value)}
+                    placeholder="2026-08-15, 2026-12-25"
+                    value={daysOffInput}
+                  />
+                </label>
+                <button
+                  className="rounded-[8px] border border-line bg-panel px-4 py-3 text-sm font-medium"
+                  onClick={applyDaysOffInput}
+                  type="button"
+                >
+                  Salveaza zile libere
+                </button>
+              </div>
             </div>
 
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
