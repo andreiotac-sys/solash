@@ -50,6 +50,15 @@ type OfflineOp =
 
 type TabKey = "home" | "month" | "appointments" | "clients" | "settings";
 type PanelKey = "appointment" | "client";
+type PushLog = {
+  id: number;
+  source: string;
+  title: string;
+  body: string;
+  sent_count: number;
+  reminders_count: number;
+  created_at: string;
+};
 
 const todayIso = () => {
   const now = new Date();
@@ -66,6 +75,22 @@ const humanDate = (dateString: string) =>
     month: "long",
     year: "numeric",
   }).format(new Date(`${dateString}T12:00:00`));
+
+const shortDayMonth = (dateString: string) => {
+  const date = new Date(`${dateString}T12:00:00`);
+  const day = `${date.getDate()}`;
+  const month = new Intl.DateTimeFormat("ro-RO", { month: "short" }).format(date);
+  return { day, month };
+};
+
+const formatLogDateTime = (value: string) =>
+  new Intl.DateTimeFormat("ro-RO", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 
 const parseDurationToMinutes = (value: string) => {
   const normalized = value.trim().toLowerCase();
@@ -109,6 +134,25 @@ const formatPhoneForWhatsApp = (phone: string) => {
     cleaned = `40${cleaned}`;
   }
   return cleaned;
+};
+
+const statusBadgeClass = (status: string) => {
+  if (status === "Confirmata") {
+    return "bg-[#0f3b2b] text-[#a7f3d0]";
+  }
+  if (status === "Noua") {
+    return "bg-[#3f3317] text-[#f7d998]";
+  }
+  if (status === "Reminder maine") {
+    return "bg-[#2d2946] text-[#d7c7ff]";
+  }
+  if (status === "Finalizata") {
+    return "bg-[#183247] text-[#b6e3ff]";
+  }
+  if (status === "Anulata") {
+    return "bg-[#4a1f1f] text-[#ffc7c7]";
+  }
+  return "bg-black text-gold";
 };
 
 const defaultStore = (): LocalStore => ({
@@ -251,6 +295,7 @@ export default function Home() {
   const [serviceActive, setServiceActive] = useState(true);
   const [editingServiceId, setEditingServiceId] = useState<number | null>(null);
   const [clientSearch, setClientSearch] = useState("");
+  const [appointmentClientFilter, setAppointmentClientFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("toate");
   const [selectedMonth, setSelectedMonth] = useState(() => todayIso().slice(0, 7));
   const [showMonthDayView, setShowMonthDayView] = useState(false);
@@ -262,6 +307,9 @@ export default function Home() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushTestBusy, setPushTestBusy] = useState(false);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [pushLogs, setPushLogs] = useState<PushLog[]>([]);
+  const [isLoadingPushLogs, setIsLoadingPushLogs] = useState(false);
   const [toast, setToast] = useState<{
     text: string;
     type: "success" | "error";
@@ -606,6 +654,10 @@ export default function Home() {
 
   const currentWeekKey = toWeekKey(appointmentDate);
   const currentMonthKey = toMonthKey(appointmentDate);
+  const selectedDateBadge = useMemo(
+    () => shortDayMonth(appointmentDate),
+    [appointmentDate]
+  );
   const monthLabel = useMemo(
     () =>
       new Intl.DateTimeFormat("ro-RO", {
@@ -717,13 +769,14 @@ export default function Home() {
 
   const nextUpcomingAppointment = useMemo(() => {
     const now = new Date();
+    const currentDate = `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, "0")}-${`${now.getDate()}`.padStart(2, "0")}`;
     const currentTime = `${`${now.getHours()}`.padStart(2, "0")}:${`${now.getMinutes()}`.padStart(2, "0")}`;
     return [...appointments]
       .filter(
         (appointment) =>
           appointment.status !== "Anulata" &&
-          (appointment.date > appointmentDate ||
-            (appointment.date === appointmentDate && appointment.start >= currentTime))
+          (appointment.date > currentDate ||
+            (appointment.date === currentDate && appointment.start >= currentTime))
       )
       .sort((a, b) => {
         if (a.date === b.date) {
@@ -731,7 +784,34 @@ export default function Home() {
         }
         return a.date.localeCompare(b.date);
       })[0];
-  }, [appointmentDate, appointments]);
+  }, [appointments]);
+
+  const upcomingSummary = useMemo(() => {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, "0")}-${`${now.getDate()}`.padStart(2, "0")}`;
+    const tomorrow = addDays(today, 1);
+    const currentTime = `${`${now.getHours()}`.padStart(2, "0")}:${`${now.getMinutes()}`.padStart(2, "0")}`;
+
+    const baseFilter = (appointment: Appointment) =>
+      appointment.status !== "Anulata" && appointment.status !== "Finalizata";
+
+    const todayList = appointments
+      .filter(
+        (appointment) =>
+          baseFilter(appointment) &&
+          appointment.date === today &&
+          appointment.start >= currentTime
+      )
+      .sort((a, b) => a.start.localeCompare(b.start))
+      .slice(0, 3);
+
+    const tomorrowList = appointments
+      .filter((appointment) => baseFilter(appointment) && appointment.date === tomorrow)
+      .sort((a, b) => a.start.localeCompare(b.start))
+      .slice(0, 3);
+
+    return { todayList, tomorrowList };
+  }, [appointments]);
 
   const filteredClients = useMemo(() => {
     const term = clientSearch.trim().toLowerCase();
@@ -746,6 +826,19 @@ export default function Home() {
         client.notes.toLowerCase().includes(term)
     );
   }, [clientSearch, clients]);
+
+  const filteredClientsForAppointment = useMemo(() => {
+    const term = appointmentClientFilter.trim().toLowerCase();
+    const list = [...clients].sort((a, b) => a.name.localeCompare(b.name, "ro"));
+    if (!term) {
+      return list;
+    }
+    return list.filter(
+      (client) =>
+        client.name.toLowerCase().includes(term) ||
+        client.phone.toLowerCase().includes(term)
+    );
+  }, [appointmentClientFilter, clients]);
 
   const calendarSelected = useMemo(
     () => new Date(`${appointmentDate}T12:00:00`),
@@ -983,6 +1076,7 @@ export default function Home() {
     setAppointmentPrice(source?.price ?? 0);
     setAppointmentStatus("Noua");
     setAppointmentNotes("");
+    setAppointmentClientFilter("");
   };
 
   const resetClientForm = () => {
@@ -1166,6 +1260,19 @@ export default function Home() {
     }
   };
 
+  const handleWhatsAppConfirm = async (appointment: Appointment) => {
+    const text = `Buna, ${appointment.clientName}! Confirmam programarea ta SoLash pentru ${appointment.date} la ${appointment.start}. Te asteptam cu drag!`;
+    window.open(
+      `https://wa.me/${formatPhoneForWhatsApp(appointment.phone)}?text=${encodeURIComponent(text)}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+
+    if (appointment.status !== "Confirmata") {
+      await handleUpdateStatus(appointment.id, "Confirmata");
+    }
+  };
+
   const handleTestPush = async () => {
     if (!session?.access_token) {
       setToast({ text: "Trebuie sa fii autentificata pentru test.", type: "error" });
@@ -1196,8 +1303,102 @@ export default function Home() {
       setToast({ text: "Testul push a esuat.", type: "error" });
     } finally {
       setPushTestBusy(false);
+      void loadPushLogs();
     }
   };
+
+  const loadPushLogs = useCallback(async () => {
+    if (!session?.access_token) {
+      setPushLogs([]);
+      return;
+    }
+
+    setIsLoadingPushLogs(true);
+    try {
+      const response = await fetch("/api/push/logs", {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error("Failed to load logs");
+      }
+      const result = (await response.json()) as { ok: boolean; logs?: PushLog[] };
+      setPushLogs(result.logs ?? []);
+    } catch {
+      setPushLogs([]);
+    } finally {
+      setIsLoadingPushLogs(false);
+    }
+  }, [session?.access_token]);
+
+  const csvEscape = (value: string | number) =>
+    `"${`${value ?? ""}`.replace(/"/g, '""')}"`;
+
+  const downloadCsv = (filename: string, headers: string[], rows: Array<Array<string | number>>) => {
+    const content = [
+      headers.map(csvEscape).join(","),
+      ...rows.map((row) => row.map(csvEscape).join(",")),
+    ].join("\n");
+
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  };
+
+  const handleExportCsv = async () => {
+    setIsExportingCsv(true);
+    try {
+      const clientsRows = [...clients]
+        .sort((a, b) => a.name.localeCompare(b.name, "ro"))
+        .map((client) => [client.name, client.phone, client.notes, client.visits, client.lastVisit]);
+      downloadCsv(
+        `solash-cliente-${todayIso()}.csv`,
+        ["Nume", "Telefon", "Observatii", "Vizite", "Ultima vizita"],
+        clientsRows
+      );
+
+      const appointmentsRows = [...appointments]
+        .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)))
+        .map((appointment) => [
+          appointment.date,
+          appointment.start,
+          appointment.clientName,
+          appointment.phone,
+          appointment.service,
+          appointment.duration,
+          appointment.price,
+          appointment.status,
+          appointment.notes,
+        ]);
+      downloadCsv(
+        `solash-programari-${todayIso()}.csv`,
+        ["Data", "Ora", "Clienta", "Telefon", "Serviciu", "Durata", "Pret", "Status", "Observatii"],
+        appointmentsRows
+      );
+
+      setToast({
+        text: "Am exportat CSV pentru cliente si programari.",
+        type: "success",
+      });
+    } catch {
+      setToast({ text: "Nu am putut exporta CSV.", type: "error" });
+    } finally {
+      setIsExportingCsv(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== "settings") {
+      return;
+    }
+    void loadPushLogs();
+  }, [activeTab, loadPushLogs]);
 
   const handleSignOut = async () => {
     if (!supabase) {
@@ -1615,6 +1816,7 @@ export default function Home() {
     setAppointmentPrice(appointment.price);
     setAppointmentStatus(appointment.status);
     setAppointmentNotes(appointment.notes);
+    setAppointmentClientFilter("");
     setScrollToEditorTick((value) => value + 1);
   };
 
@@ -1923,10 +2125,103 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-28 pt-6">
-        <section className="panel-glow gold-ring rounded-[8px] border border-line px-5 py-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="mb-3 w-fit rounded-[8px] p-0.5">
+        {activeTab === "home" ? (
+          <section className="panel-glow gold-ring rounded-[8px] border border-line px-5 py-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="mb-3 w-fit rounded-[8px] p-0.5">
+                  <Image
+                    alt="SoLash logo"
+                    className="h-auto w-full max-w-[186px] rounded-[6px]"
+                    height={98}
+                    priority
+                    src="/solash-logo-v3.png"
+                    width={186}
+                  />
+                </div>
+                <p className="text-sm capitalize text-muted">{humanDate(appointmentDate)}</p>
+                <p className="mt-2 max-w-[18rem] text-sm leading-6 text-[#ddd4c5]">
+                  Programari premium pentru extensii de gene, gandite clar pentru mobil.
+                </p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel px-3 py-2 text-right">
+                <p className="text-xs text-muted">Pe data aleasa</p>
+                <p className="mt-1 text-2xl font-semibold text-gold-strong">
+                  {appointmentsForSelectedDate.length}
+                </p>
+                <p className="text-xs text-muted">programari</p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                className="rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black"
+                onClick={() => {
+                  setActiveTab("appointments");
+                  setActivePanel("appointment");
+                  resetAppointmentForm();
+                }}
+                type="button"
+              >
+                Programare noua
+              </button>
+              <button
+                className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3 text-sm font-semibold text-foreground"
+                onClick={() => {
+                  setActiveTab("appointments");
+                  setActivePanel("client");
+                  resetClientForm();
+                }}
+                type="button"
+              >
+                Adauga clienta
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
+                <p className="text-xs text-muted">Incasari pe zi</p>
+                <p className="mt-2 text-xl font-semibold text-gold">{formatPrice(dailyRevenue)}</p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
+                <p className="text-xs text-muted">Reminder maine</p>
+                <p className="mt-2 text-xl font-semibold">{reminderCount}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
+                <p className="text-xs text-muted">Saptamana</p>
+                <p className="mt-2 text-lg font-semibold">{formatPrice(weeklyRevenue)}</p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
+                <p className="text-xs text-muted">Luna</p>
+                <p className="mt-2 text-lg font-semibold">{formatPrice(monthlyRevenue)}</p>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <p className="mb-2 text-sm text-muted">Ziua selectata</p>
+              <button
+                className="w-full rounded-[8px] border border-line bg-black px-3 py-3 text-left"
+                onClick={() => setShowCalendar(true)}
+                type="button"
+              >
+                {humanDate(appointmentDate)}
+              </button>
+            </div>
+
+            {!isOnline ? (
+              <div className="mt-4 rounded-[8px] border border-line bg-black px-4 py-3 text-sm text-[#ddd4c5]">
+                Offline mode activ
+                {pendingOpsCount > 0 ? ` (${pendingOpsCount} schimbari in asteptare)` : "."}
+              </div>
+            ) : null}
+          </section>
+        ) : (
+          <section className="gold-ring rounded-[8px] border border-line bg-panel px-5 py-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="w-fit rounded-[8px] p-0.5">
                 <Image
                   alt="SoLash logo"
                   className="h-auto w-full max-w-[186px] rounded-[6px]"
@@ -1936,85 +2231,15 @@ export default function Home() {
                   width={186}
                 />
               </div>
-              <p className="text-sm capitalize text-muted">{humanDate(appointmentDate)}</p>
-              <p className="mt-2 max-w-[18rem] text-sm leading-6 text-[#ddd4c5]">
-                Programari premium pentru extensii de gene, gandite clar pentru mobil.
-              </p>
+              <div className="text-right">
+                <p className="text-base font-semibold text-muted">{selectedDateBadge.day}</p>
+                <p className="text-2xl font-semibold leading-none text-gold-strong capitalize">
+                  {selectedDateBadge.month}
+                </p>
+              </div>
             </div>
-            <div className="gold-ring rounded-[8px] border border-line bg-panel px-3 py-2 text-right">
-              <p className="text-xs text-muted">Pe data aleasa</p>
-              <p className="mt-1 text-2xl font-semibold text-gold-strong">
-                {appointmentsForSelectedDate.length}
-              </p>
-              <p className="text-xs text-muted">programari</p>
-            </div>
-          </div>
-
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <button
-              className="rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black"
-              onClick={() => {
-                setActiveTab("appointments");
-                setActivePanel("appointment");
-                resetAppointmentForm();
-              }}
-              type="button"
-            >
-              Programare noua
-            </button>
-            <button
-              className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3 text-sm font-semibold text-foreground"
-              onClick={() => {
-                setActiveTab("appointments");
-                setActivePanel("client");
-                resetClientForm();
-              }}
-              type="button"
-            >
-              Adauga clienta
-            </button>
-          </div>
-
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
-              <p className="text-xs text-muted">Incasari pe zi</p>
-              <p className="mt-2 text-xl font-semibold text-gold">{formatPrice(dailyRevenue)}</p>
-            </div>
-            <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
-              <p className="text-xs text-muted">Reminder maine</p>
-              <p className="mt-2 text-xl font-semibold">{reminderCount}</p>
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
-              <p className="text-xs text-muted">Saptamana</p>
-              <p className="mt-2 text-lg font-semibold">{formatPrice(weeklyRevenue)}</p>
-            </div>
-            <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
-              <p className="text-xs text-muted">Luna</p>
-              <p className="mt-2 text-lg font-semibold">{formatPrice(monthlyRevenue)}</p>
-            </div>
-          </div>
-
-          <div className="mt-5">
-            <p className="mb-2 text-sm text-muted">Ziua selectata</p>
-            <button
-              className="w-full rounded-[8px] border border-line bg-black px-3 py-3 text-left"
-              onClick={() => setShowCalendar(true)}
-              type="button"
-            >
-              {humanDate(appointmentDate)}
-            </button>
-          </div>
-
-          {!isOnline ? (
-            <div className="mt-4 rounded-[8px] border border-line bg-black px-4 py-3 text-sm text-[#ddd4c5]">
-              Offline mode activ
-              {pendingOpsCount > 0 ? ` (${pendingOpsCount} schimbari in asteptare)` : "."}
-            </div>
-          ) : null}
-        </section>
+          </section>
+        )}
 
         {showCalendar ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
@@ -2062,7 +2287,7 @@ export default function Home() {
                         {nextUpcomingAppointment.service}
                       </p>
                     </div>
-                    <span className="rounded-[8px] bg-black px-2 py-1 text-xs text-gold">
+                    <span className={`rounded-[8px] px-2 py-1 text-xs ${statusBadgeClass(nextUpcomingAppointment.status)}`}>
                       {nextUpcomingAppointment.status}
                     </span>
                   </div>
@@ -2088,6 +2313,54 @@ export default function Home() {
                   Nu exista programari viitoare inca.
                 </div>
               )}
+            </section>
+
+            <section className="mt-6">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Reminder rapid</h2>
+                <span className="text-sm text-muted">
+                  Azi {upcomingSummary.todayList.length} • Maine {upcomingSummary.tomorrowList.length}
+                </span>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-sm font-semibold text-gold">Azi</p>
+                {upcomingSummary.todayList.length > 0 ? (
+                  <div className="mt-2 space-y-2">
+                    {upcomingSummary.todayList.map((appointment) => (
+                      <div
+                        key={`today-${appointment.id}`}
+                        className="rounded-[8px] border border-[#d4b578] bg-[#fffaf0] px-3 py-2"
+                      >
+                        <p className="text-sm font-semibold text-[#1f1a12]">
+                          {appointment.start} • {appointment.clientName}
+                        </p>
+                        <p className="mt-1 text-xs text-[#5f5648]">{appointment.service}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-muted">Nu ai programari ramase azi.</p>
+                )}
+
+                <p className="mt-4 text-sm font-semibold text-gold">Maine</p>
+                {upcomingSummary.tomorrowList.length > 0 ? (
+                  <div className="mt-2 space-y-2">
+                    {upcomingSummary.tomorrowList.map((appointment) => (
+                      <div
+                        key={`tomorrow-${appointment.id}`}
+                        className="rounded-[8px] border border-[#d4b578] bg-[#fffaf0] px-3 py-2"
+                      >
+                        <p className="text-sm font-semibold text-[#1f1a12]">
+                          {appointment.start} • {appointment.clientName}
+                        </p>
+                        <p className="mt-1 text-xs text-[#5f5648]">{appointment.service}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-muted">Nu ai programari pentru maine.</p>
+                )}
+              </div>
             </section>
 
             <section className="mt-7">
@@ -2119,17 +2392,17 @@ export default function Home() {
                     ) : (
                       <div
                         key={`home-busy-${segment.appointment.id}-${segment.start}`}
-                        className="rounded-[8px] border border-line bg-panel px-3 py-2"
+                        className="rounded-[8px] border border-[#d4b578] bg-[#fffaf0] px-3 py-2"
                       >
                         <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-foreground">
+                          <p className="text-sm font-semibold text-[#1f1a12]">
                             {segment.appointment.clientName}
                           </p>
-                          <p className="text-xs text-gold">
+                          <p className="text-xs text-[#7c5d1f]">
                             {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
                           </p>
                         </div>
-                        <p className="mt-1 text-xs text-muted">
+                        <p className="mt-1 text-xs text-[#5f5648]">
                           {segment.appointment.service} • {segment.appointment.status}
                         </p>
                       </div>
@@ -2145,7 +2418,7 @@ export default function Home() {
           <section className="mt-6">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold capitalize">{monthLabel}</h2>
-              <span className="text-xs text-muted">
+              <span className="text-sm text-muted">
                 max {calendarCapacity.maxAppointments} programari/zi
               </span>
             </div>
@@ -2187,7 +2460,7 @@ export default function Home() {
               {monthQuickPicks.map((month) => (
                 <button
                   key={month}
-                  className={`rounded-[8px] border px-3 py-2 text-xs whitespace-nowrap ${
+                  className={`rounded-[8px] border px-3 py-2 text-sm whitespace-nowrap ${
                     month === selectedMonth
                       ? "border-gold bg-gold text-black"
                       : "border-line bg-panel text-muted"
@@ -2236,7 +2509,7 @@ export default function Home() {
                     ) : (
                       <button
                         key={`month-busy-${segment.appointment.id}-${segment.start}`}
-                        className="w-full rounded-[8px] border border-line bg-panel px-3 py-2 text-left"
+                        className="w-full rounded-[8px] border border-[#d4b578] bg-[#fffaf0] px-3 py-2 text-left"
                         onClick={() => {
                           setActiveTab("appointments");
                           startEditAppointment(segment.appointment);
@@ -2244,14 +2517,14 @@ export default function Home() {
                         type="button"
                       >
                         <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-foreground">
+                          <p className="text-sm font-semibold text-[#1f1a12]">
                             {segment.appointment.clientName}
                           </p>
-                          <p className="text-xs text-gold">
+                          <p className="text-xs text-[#7c5d1f]">
                             {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
                           </p>
                         </div>
-                        <p className="mt-1 text-xs text-muted">
+                        <p className="mt-1 text-xs text-[#5f5648]">
                           {segment.appointment.service} • {segment.appointment.status}
                         </p>
                       </button>
@@ -2288,7 +2561,7 @@ export default function Home() {
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft p-3">
                 <div className="mb-2 grid grid-cols-7 gap-2">
                   {["L", "M", "M", "J", "V", "S", "D"].map((label, idx) => (
-                    <p key={`${label}-${idx}`} className="text-center text-xs text-muted">
+                    <p key={`${label}-${idx}`} className="text-center text-sm text-muted">
                       {label}
                     </p>
                   ))}
@@ -2311,7 +2584,7 @@ export default function Home() {
                       type="button"
                     >
                       <p
-                        className={`text-[11px] font-semibold ${
+                        className={`text-sm font-semibold ${
                           day.inCurrentMonth ? "text-foreground" : "text-muted"
                         }`}
                       >
@@ -2319,8 +2592,8 @@ export default function Home() {
                       </p>
                       {day.inCurrentMonth ? (
                         <>
-                          <p className="mt-1 text-[10px] text-gold">{day.count} ocupate</p>
-                          <p className="text-[10px] text-[#96f2c6]">{day.slotsLeft} libere</p>
+                          <p className="mt-1 text-xs text-gold">{day.count} ocupate</p>
+                          <p className="text-xs text-[#96f2c6]">{day.slotsLeft} libere</p>
                         </>
                       ) : null}
                     </button>
@@ -2380,25 +2653,36 @@ export default function Home() {
                   ref={appointmentFormCardRef}
                 >
                   <div className="grid gap-3">
-                    <label className="grid gap-2 text-sm">
+                    <label className="grid min-w-0 gap-2 text-sm">
                       <span className="text-muted">Clienta</span>
+                      <input
+                        className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        onChange={(event) => setAppointmentClientFilter(event.target.value)}
+                        placeholder="Cauta dupa nume sau telefon"
+                        value={appointmentClientFilter}
+                      />
                       <select
-                        className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                         onChange={(event) => setSelectedClientId(Number(event.target.value))}
                         value={selectedClientId}
                       >
-                        {clients.map((client) => (
+                        {filteredClientsForAppointment.map((client) => (
                           <option key={client.id} value={client.id}>
-                            {client.name}
+                            {client.name} • {client.phone}
                           </option>
                         ))}
                       </select>
+                      {filteredClientsForAppointment.length === 0 ? (
+                        <p className="text-xs text-muted">
+                          Nu exista cliente pentru filtrul introdus.
+                        </p>
+                      ) : null}
                     </label>
 
-                    <label className="grid gap-2 text-sm">
+                    <label className="grid min-w-0 gap-2 text-sm">
                       <span className="text-muted">Serviciu</span>
                       <select
-                        className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                         onChange={(event) => handleServiceSelection(Number(event.target.value))}
                         value={selectedServiceId}
                       >
@@ -2410,20 +2694,20 @@ export default function Home() {
                       </select>
                     </label>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="grid gap-2 text-sm">
+                    <div className="grid grid-cols-1 gap-3">
+                      <label className="grid min-w-0 gap-2 text-sm">
                         <span className="text-muted">Data</span>
                         <input
-                          className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                          className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                           onChange={(event) => setAppointmentDate(event.target.value)}
                           type="date"
                           value={appointmentDate}
                         />
                       </label>
-                      <label className="grid gap-2 text-sm">
+                      <label className="grid min-w-0 gap-2 text-sm">
                         <span className="text-muted">Ora</span>
                         <input
-                          className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                          className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                           onChange={(event) => setAppointmentTime(event.target.value)}
                           type="time"
                           value={appointmentTime}
@@ -2431,19 +2715,19 @@ export default function Home() {
                       </label>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="grid gap-2 text-sm">
+                    <div className="grid grid-cols-1 gap-3">
+                      <label className="grid min-w-0 gap-2 text-sm">
                         <span className="text-muted">Durata</span>
                         <input
-                          className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                          className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                           onChange={(event) => setAppointmentDuration(event.target.value)}
                           value={appointmentDuration}
                         />
                       </label>
-                      <label className="grid gap-2 text-sm">
+                      <label className="grid min-w-0 gap-2 text-sm">
                         <span className="text-muted">Pret</span>
                         <input
-                          className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                          className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                           min="0"
                           onChange={(event) =>
                             setAppointmentPrice(Number(event.target.value) || 0)
@@ -2454,10 +2738,10 @@ export default function Home() {
                       </label>
                     </div>
 
-                    <label className="grid gap-2 text-sm">
+                    <label className="grid min-w-0 gap-2 text-sm">
                       <span className="text-muted">Status</span>
                       <select
-                        className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                         onChange={(event) => setAppointmentStatus(event.target.value)}
                         value={appointmentStatus}
                       >
@@ -2469,10 +2753,10 @@ export default function Home() {
                       </select>
                     </label>
 
-                    <label className="grid gap-2 text-sm">
+                    <label className="grid min-w-0 gap-2 text-sm">
                       <span className="text-muted">Observatii programare</span>
                       <textarea
-                        className="min-h-[88px] rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        className="min-h-[88px] w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                         onChange={(event) => setAppointmentNotes(event.target.value)}
                         placeholder="Detalii, preferinte, reminder..."
                         value={appointmentNotes}
@@ -2620,17 +2904,17 @@ export default function Home() {
                     ) : (
                       <div
                         key={`busy-${segment.appointment.id}-${segment.start}`}
-                        className="rounded-[8px] border border-line bg-panel px-3 py-2"
+                        className="rounded-[8px] border border-[#d4b578] bg-[#fffaf0] px-3 py-2"
                       >
                         <div className="flex items-center justify-between">
-                          <p className="text-sm font-medium text-foreground">
+                          <p className="text-sm font-semibold text-[#1f1a12]">
                             {segment.appointment.clientName}
                           </p>
-                          <p className="text-xs text-gold">
+                          <p className="text-xs text-[#7c5d1f]">
                             {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
                           </p>
                         </div>
-                        <p className="mt-1 text-xs text-muted">
+                        <p className="mt-1 text-xs text-[#5f5648]">
                           {segment.appointment.service} • {segment.appointment.status}
                         </p>
                       </div>
@@ -2650,7 +2934,7 @@ export default function Home() {
                         <p className="text-base font-semibold">{appointment.clientName}</p>
                         <p className="mt-1 text-sm text-[#ddd4c5]">{appointment.service}</p>
                       </div>
-                      <span className="rounded-[8px] bg-black px-2 py-1 text-xs text-gold">
+                      <span className={`rounded-[8px] px-2 py-1 text-xs ${statusBadgeClass(appointment.status)}`}>
                         {appointment.status}
                       </span>
                     </div>
@@ -2702,22 +2986,19 @@ export default function Home() {
                       </button>
                     </div>
 
-                    <div className="mt-3 flex gap-3">
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                      <button
+                        className="w-full rounded-[8px] bg-gold px-3 py-3 text-center text-sm font-semibold text-black"
+                        onClick={() => void handleWhatsAppConfirm(appointment)}
+                        type="button"
+                      >
+                        Confirma pe WhatsApp
+                      </button>
                       <a
-                        className="flex-1 rounded-[8px] bg-[#1f1f1f] px-3 py-3 text-center text-sm font-medium text-foreground"
+                        className="rounded-[8px] bg-[#1f1f1f] px-3 py-3 text-center text-sm font-medium text-foreground"
                         href={`tel:${appointment.phone}`}
                       >
                         Suna
-                      </a>
-                      <a
-                        className="flex-1 rounded-[8px] bg-gold px-3 py-3 text-center text-sm font-semibold text-black"
-                        href={`https://wa.me/${formatPhoneForWhatsApp(appointment.phone)}?text=${encodeURIComponent(
-                          `Buna, ${appointment.clientName}! Programarea ta SoLash este pe ${appointment.date} la ${appointment.start}.`
-                        )}`}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        WhatsApp
                       </a>
                       <button
                         className="rounded-[8px] bg-[#7b2020] px-3 py-3 text-sm font-medium text-white"
@@ -2857,6 +3138,63 @@ export default function Home() {
               ) : null}
             </div>
 
+            <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Export date (CSV)</p>
+              <p className="mt-2 text-sm text-[#ddd4c5]">
+                Descarca rapid clientele si programarile pentru backup.
+              </p>
+              <button
+                className="mt-3 w-full rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                disabled={isExportingCsv}
+                onClick={() => void handleExportCsv()}
+                type="button"
+              >
+                {isExportingCsv ? "Se exporta..." : "Exporta CSV (cliente + programari)"}
+              </button>
+            </div>
+
+            <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">Jurnal notificari</p>
+                <button
+                  className="rounded-[8px] border border-line bg-panel px-3 py-2 text-xs font-medium"
+                  onClick={() => void loadPushLogs()}
+                  type="button"
+                >
+                  Refresh
+                </button>
+              </div>
+              {isLoadingPushLogs ? (
+                <p className="mt-3 text-sm text-muted">Se incarca jurnalul...</p>
+              ) : pushLogs.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {pushLogs.slice(0, 10).map((log) => (
+                    <div
+                      key={log.id}
+                      className="rounded-[8px] border border-line bg-black/70 px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold text-gold">
+                          {log.source === "daily"
+                            ? "Reminder zilnic"
+                            : log.source === "upcoming"
+                              ? "Reminder 15-20 min"
+                              : "Test manual"}
+                        </p>
+                        <p className="text-xs text-muted">{formatLogDateTime(log.created_at)}</p>
+                      </div>
+                      <p className="mt-1 text-sm text-[#ddd4c5]">{log.body}</p>
+                      <p className="mt-1 text-xs text-muted">
+                        Trimise: {log.sent_count} • Programari: {log.reminders_count}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-muted">Nu exista notificari trimise in jurnal.</p>
+              )}
+            </div>
+
             <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
               <div className="grid gap-3">
                 <label className="grid gap-2 text-sm">
@@ -2868,7 +3206,7 @@ export default function Home() {
                   />
                 </label>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="grid gap-2 text-sm">
                     <span className="text-muted">Durata</span>
                     <input
@@ -3001,7 +3339,7 @@ export default function Home() {
           ].map(({ label, key }) => (
             <button
               key={label}
-              className={`min-w-[58px] rounded-[8px] px-2 py-2 text-xs font-medium ${
+              className={`min-w-[58px] rounded-[8px] px-2 py-2 text-sm font-medium ${
                 activeTab === key ? "bg-gold text-black" : "text-muted"
               }`}
               onClick={() => setActiveTab(key)}

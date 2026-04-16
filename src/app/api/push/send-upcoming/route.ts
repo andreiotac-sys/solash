@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSupabase, isPushConfigured, sendPush } from "@/lib/push-server";
+import {
+  getServerSupabase,
+  isPushConfigured,
+  savePushLog,
+  sendPush,
+} from "@/lib/push-server";
 
 export const runtime = "nodejs";
 
@@ -209,6 +214,14 @@ export async function GET(request: Request) {
       }
     }
   }
+
+  await savePushLog({
+    source: "upcoming",
+    title: "SoLash Reminder",
+    body: message,
+    sentCount: sent,
+    remindersCount: uniqueAppointments.length,
+  });
 
   return NextResponse.json({
     ok: true,

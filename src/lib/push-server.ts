@@ -42,3 +42,24 @@ export const sendPush = async (
   ensureVapid();
   await webpush.sendNotification(subscription, JSON.stringify(payload));
 };
+
+export const savePushLog = async (entry: {
+  source: string;
+  title: string;
+  body: string;
+  sentCount: number;
+  remindersCount?: number;
+}) => {
+  const supabase = getServerSupabase();
+  if (!supabase) {
+    return;
+  }
+
+  await supabase.from("push_delivery_logs").insert({
+    source: entry.source,
+    title: entry.title,
+    body: entry.body,
+    sent_count: entry.sentCount,
+    reminders_count: entry.remindersCount ?? 0,
+  });
+};

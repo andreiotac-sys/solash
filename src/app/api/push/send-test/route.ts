@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getServerSupabase, isPushConfigured, sendPush } from "@/lib/push-server";
+import {
+  getServerSupabase,
+  isPushConfigured,
+  savePushLog,
+  sendPush,
+} from "@/lib/push-server";
 
 export const runtime = "nodejs";
 
@@ -75,6 +80,14 @@ export async function POST(request: Request) {
         .eq("endpoint", row.endpoint);
     }
   }
+
+  await savePushLog({
+    source: "test",
+    title: "SoLash",
+    body: "Test notificare. Daca vezi asta, push-ul functioneaza.",
+    sentCount: sent,
+    remindersCount: 1,
+  });
 
   return NextResponse.json({ ok: true, sent });
 }

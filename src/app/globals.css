@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --background: #050505;
+  --background: #090806;
   --foreground: #f8f3ea;
-  --muted: #b6ab97;
-  --gold: #d7b56d;
-  --gold-strong: #f0cb7d;
-  --panel: #111111;
-  --panel-soft: #171717;
-  --line: rgba(215, 181, 109, 0.22);
+  --muted: #d6ccbc;
+  --gold: #d8b670;
+  --gold-strong: #f2d089;
+  --panel: #181512;
+  --panel-soft: #23201b;
+  --line: rgba(216, 182, 112, 0.36);
 }
 
 @theme inline {
@@ -39,6 +39,8 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
   letter-spacing: 0;
+  line-height: 1.45;
+  font-size: 16px;
 }
 
 a {
@@ -58,11 +60,30 @@ a {
 
 .panel-glow {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0)),
     linear-gradient(
       135deg,
-      rgba(215, 181, 109, 0.1),
-      rgba(215, 181, 109, 0.02) 35%,
-      rgba(255, 255, 255, 0.02)
+      rgba(216, 182, 112, 0.14),
+      rgba(216, 182, 112, 0.03) 35%,
+      rgba(255, 255, 255, 0.03)
     );
+}
+
+button,
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  min-width: 0;
+  display: block;
+}
+
+.grid > * {
+  min-width: 0;
 }

@@ -51,3 +51,8 @@ Endpoint:
 
 Ruleaza la fiecare 5 minute dintr-un scheduler extern (ex. cron-job.org).
 Trimite notificari cu numele clientelor care urmeaza in 15-20 minute si evita duplicatele.
+
+## Jurnal notificari
+
+Aplicatia salveaza trimiterile push in `push_delivery_logs` (test, reminder zilnic, reminder 15-20 min).
+Jurnalul este vizibil in tab-ul Setari.

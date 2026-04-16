@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSupabase, isPushConfigured, sendPush } from "@/lib/push-server";
+import {
+  getServerSupabase,
+  isPushConfigured,
+  savePushLog,
+  sendPush,
+} from "@/lib/push-server";
 
 export const runtime = "nodejs";
 
@@ -155,6 +160,15 @@ export async function GET(request: Request) {
       }
     }
   }
+
+  const body = `Ai ${count} programari maine. Trimite confirmarile acum.`;
+  await savePushLog({
+    source: "daily",
+    title: "SoLash",
+    body,
+    sentCount: sent,
+    remindersCount: count,
+  });
 
   return NextResponse.json({
     ok: true,
