@@ -92,6 +92,13 @@ const formatLogDateTime = (value: string) =>
     minute: "2-digit",
   }).format(new Date(value));
 
+const formatShortDate = (value: string) =>
+  new Intl.DateTimeFormat("ro-RO", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(`${value}T12:00:00`));
+
 const parseDurationToMinutes = (value: string) => {
   const normalized = value.trim().toLowerCase();
   const hourMatch = normalized.match(/(\d+)\s*h/);
@@ -813,6 +820,34 @@ export default function Home() {
     return { todayList, tomorrowList };
   }, [appointments]);
 
+  const clientActivityById = useMemo(() => {
+    const map = new Map<number, { visits: number; lastVisit: string }>();
+
+    for (const client of clients) {
+      map.set(client.id, { visits: client.visits, lastVisit: client.lastVisit });
+    }
+
+    for (const client of clients) {
+      const completed = appointments
+        .filter(
+          (appointment) =>
+            appointment.clientId === client.id &&
+            appointment.status === "Finalizata"
+        )
+        .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
+
+      if (completed.length > 0) {
+        const latest = completed[completed.length - 1];
+        map.set(client.id, {
+          visits: completed.length,
+          lastVisit: formatShortDate(latest.date),
+        });
+      }
+    }
+
+    return map;
+  }, [appointments, clients]);
+
   const filteredClients = useMemo(() => {
     const term = clientSearch.trim().toLowerCase();
     const list = [...clients].sort((a, b) => a.name.localeCompare(b.name, "ro"));
@@ -1335,13 +1370,12 @@ export default function Home() {
   const csvEscape = (value: string | number) =>
     `"${`${value ?? ""}`.replace(/"/g, '""')}"`;
 
-  const downloadCsv = (filename: string, headers: string[], rows: Array<Array<string | number>>) => {
-    const content = [
-      headers.map(csvEscape).join(","),
-      ...rows.map((row) => row.map(csvEscape).join(",")),
-    ].join("\n");
+  const csvRow = (values: Array<string | number>) => values.map(csvEscape).join(",");
 
-    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const downloadCsv = (filename: string, content: string) => {
+    const normalized = content.replace(/\n/g, "\r\n");
+
+    const blob = new Blob([normalized], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = filename;
@@ -1356,12 +1390,16 @@ export default function Home() {
     try {
       const clientsRows = [...clients]
         .sort((a, b) => a.name.localeCompare(b.name, "ro"))
-        .map((client) => [client.name, client.phone, client.notes, client.visits, client.lastVisit]);
-      downloadCsv(
-        `solash-cliente-${todayIso()}.csv`,
-        ["Nume", "Telefon", "Observatii", "Vizite", "Ultima vizita"],
-        clientsRows
-      );
+        .map((client) => {
+          const activity = clientActivityById.get(client.id);
+          return [
+            client.name,
+            client.phone,
+            client.notes,
+            activity?.visits ?? client.visits,
+            activity?.lastVisit ?? client.lastVisit,
+          ];
+        });
 
       const appointmentsRows = [...appointments]
         .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)))
@@ -1376,14 +1414,21 @@ export default function Home() {
           appointment.status,
           appointment.notes,
         ]);
-      downloadCsv(
-        `solash-programari-${todayIso()}.csv`,
-        ["Data", "Ora", "Clienta", "Telefon", "Serviciu", "Durata", "Pret", "Status", "Observatii"],
-        appointmentsRows
-      );
+
+      const csvContent = [
+        csvRow(["CLIENTE"]),
+        csvRow(["Nume", "Telefon", "Observatii", "Vizite", "Ultima vizita"]),
+        ...clientsRows.map((row) => csvRow(row)),
+        "",
+        csvRow(["PROGRAMARI"]),
+        csvRow(["Data", "Ora", "Clienta", "Telefon", "Serviciu", "Durata", "Pret", "Status", "Observatii"]),
+        ...appointmentsRows.map((row) => csvRow(row)),
+      ].join("\n");
+
+      downloadCsv(`solash-export-${todayIso()}.csv`, csvContent);
 
       setToast({
-        text: "Am exportat CSV pentru cliente si programari.",
+        text: "Am exportat CSV complet (cliente + programari).",
         type: "success",
       });
     } catch {
@@ -3039,44 +3084,49 @@ export default function Home() {
             </label>
 
             <div className="grid gap-3">
-              {filteredClients.map((client) => (
-                <article
-                  key={client.id}
-                  className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="font-semibold">{client.name}</p>
-                      <p className="mt-1 text-sm text-muted">
-                        {client.visits === 0 ? "fara vizite" : `${client.visits} vizite`}
-                      </p>
+              {filteredClients.map((client) => {
+                const activity = clientActivityById.get(client.id);
+                const visits = activity?.visits ?? client.visits;
+                const lastVisit = activity?.lastVisit ?? client.lastVisit;
+                return (
+                  <article
+                    key={client.id}
+                    className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-semibold">{client.name}</p>
+                        <p className="mt-1 text-sm text-muted">
+                          {visits === 0 ? "fara vizite" : `${visits} vizite`}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-[#ddd4c5]">{lastVisit}</p>
+                        <p className="mt-1 text-sm text-gold">{client.phone}</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-[#ddd4c5]">{client.lastVisit}</p>
-                      <p className="mt-1 text-sm text-gold">{client.phone}</p>
+                    {client.notes ? (
+                      <p className="mt-3 text-sm leading-6 text-[#ddd4c5]">{client.notes}</p>
+                    ) : null}
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <button
+                        className="rounded-[8px] bg-[#1f1f1f] px-3 py-3 text-sm font-medium"
+                        onClick={() => startEditClient(client)}
+                        type="button"
+                      >
+                        Editeaza
+                      </button>
+                      <button
+                        className="rounded-[8px] bg-[#7b2020] px-3 py-3 text-sm font-medium text-white"
+                        onClick={() => void handleDeleteClient(client.id)}
+                        type="button"
+                      >
+                        Sterge
+                      </button>
                     </div>
-                  </div>
-                  {client.notes ? (
-                    <p className="mt-3 text-sm leading-6 text-[#ddd4c5]">{client.notes}</p>
-                  ) : null}
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <button
-                      className="rounded-[8px] bg-[#1f1f1f] px-3 py-3 text-sm font-medium"
-                      onClick={() => startEditClient(client)}
-                      type="button"
-                    >
-                      Editeaza
-                    </button>
-                    <button
-                      className="rounded-[8px] bg-[#7b2020] px-3 py-3 text-sm font-medium text-white"
-                      onClick={() => void handleDeleteClient(client.id)}
-                      type="button"
-                    >
-                      Sterge
-                    </button>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
           </section>
         ) : null}
