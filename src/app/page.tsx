@@ -823,25 +823,32 @@ export default function Home() {
 
   const clientActivityById = useMemo(() => {
     const map = new Map<number, { visits: number; lastVisit: string }>();
+    const today = todayIso();
 
     for (const client of clients) {
       map.set(client.id, { visits: client.visits, lastVisit: client.lastVisit });
     }
 
     for (const client of clients) {
-      const completed = appointments
+      const relatedAppointments = appointments
         .filter(
           (appointment) =>
             appointment.clientId === client.id &&
-            appointment.status === "Finalizata"
+            appointment.status !== "Anulata"
         )
         .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
 
-      if (completed.length > 0) {
-        const latest = completed[completed.length - 1];
+      if (relatedAppointments.length > 0) {
+        const pastAppointments = relatedAppointments.filter((appointment) => appointment.date <= today);
+        const lastPast = pastAppointments[pastAppointments.length - 1];
+        const latestAny = relatedAppointments[relatedAppointments.length - 1];
+        const lastVisitLabel = lastPast
+          ? formatShortDate(lastPast.date)
+          : `urmeaza ${formatShortDate(latestAny.date)}`;
+
         map.set(client.id, {
-          visits: completed.length,
-          lastVisit: formatShortDate(latest.date),
+          visits: relatedAppointments.length,
+          lastVisit: lastVisitLabel,
         });
       }
     }
