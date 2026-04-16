@@ -50,24 +50,52 @@ const runBackup = async () => {
     );
   }
 
-  const [clientsResponse, appointmentsResponse, servicesResponse] = await Promise.all([
-    supabase.from("clients").select("*").order("name", { ascending: true }),
-    supabase
-      .from("appointments")
-      .select(
-        "id, service, appointment_date, start_time, duration, price, status, notes, clients(name, phone)"
-      )
-      .order("appointment_date", { ascending: true })
-      .order("start_time", { ascending: true }),
-    supabase.from("services").select("*").order("name", { ascending: true }),
-  ]);
-
-  if (clientsResponse.error || appointmentsResponse.error || servicesResponse.error) {
+  const clientsResponse = await supabase
+    .from("clients")
+    .select("*")
+    .order("name", { ascending: true });
+  if (clientsResponse.error) {
     return NextResponse.json(
-      { ok: false, error: "Failed to load data for backup." },
+      {
+        ok: false,
+        error: `Failed to load data for backup (clients: ${clientsResponse.error.message}).`,
+      },
       { status: 500 }
     );
   }
+
+  const appointmentsWithNotes = await supabase
+    .from("appointments")
+    .select(
+      "id, service, appointment_date, start_time, duration, price, status, notes, clients(name, phone)"
+    )
+    .order("appointment_date", { ascending: true })
+    .order("start_time", { ascending: true });
+
+  const appointmentsResponse = appointmentsWithNotes.error
+    ? await supabase
+        .from("appointments")
+        .select(
+          "id, service, appointment_date, start_time, duration, price, status, clients(name, phone)"
+        )
+        .order("appointment_date", { ascending: true })
+        .order("start_time", { ascending: true })
+    : appointmentsWithNotes;
+
+  if (appointmentsResponse.error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Failed to load data for backup (appointments: ${appointmentsResponse.error.message}).`,
+      },
+      { status: 500 }
+    );
+  }
+
+  const servicesResponse = await supabase
+    .from("services")
+    .select("*")
+    .order("name", { ascending: true });
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
@@ -82,7 +110,7 @@ const runBackup = async () => {
   );
   XLSX.utils.book_append_sheet(
     workbook,
-    XLSX.utils.json_to_sheet(servicesResponse.data),
+    XLSX.utils.json_to_sheet(servicesResponse.error ? [] : servicesResponse.data),
     "Servicii"
   );
 
