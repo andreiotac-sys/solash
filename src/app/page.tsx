@@ -62,7 +62,7 @@ type OfflineOp =
   | { type: "upsert_service"; record: Service }
   | { type: "delete_service"; id: number };
 
-type TabKey = "home" | "month" | "appointments" | "clients" | "settings";
+type TabKey = "home" | "month" | "appointments" | "clients" | "reports" | "settings";
 type PanelKey = "appointment" | "client";
 type PushLog = {
   id: number;
@@ -79,6 +79,7 @@ type SaveWarning = {
 };
 type DayBusinessSettings = {
   enabled: boolean;
+  hasBreak: boolean;
   start: string;
   end: string;
   breakStart: string;
@@ -208,7 +209,10 @@ const getWorkWindowsForDate = (isoDate: string, settings: BusinessSettings) => {
   const breakStart = timeToMinutes(day.breakStart);
   const breakEnd = timeToMinutes(day.breakEnd);
   const hasValidBreak =
-    breakEnd > breakStart && breakStart > start && breakEnd < end;
+    day.hasBreak &&
+    breakEnd > breakStart &&
+    breakStart > start &&
+    breakEnd < end;
 
   if (!hasValidBreak) {
     return [{ start, end }];
@@ -294,6 +298,7 @@ const defaultSchedule = () =>
   WEEK_DAYS.reduce<Record<number, DayBusinessSettings>>((acc, day) => {
     acc[day.key] = {
       enabled: day.key !== 6,
+      hasBreak: true,
       start: DEFAULT_DAY_START,
       end: DEFAULT_DAY_END,
       breakStart: DEFAULT_BREAK_START,
@@ -338,6 +343,7 @@ const normalizeBusinessSettings = (input?: Partial<BusinessSettings> | null): Bu
     }
     schedule[day.key] = {
       enabled: typeof nextDay.enabled === "boolean" ? nextDay.enabled : fallback.schedule[day.key].enabled,
+      hasBreak: typeof nextDay.hasBreak === "boolean" ? nextDay.hasBreak : fallback.schedule[day.key].hasBreak,
       start: normalizeTimeInput(nextDay.start, fallback.schedule[day.key].start),
       end: normalizeTimeInput(nextDay.end, fallback.schedule[day.key].end),
       breakStart: normalizeTimeInput(nextDay.breakStart, fallback.schedule[day.key].breakStart),
@@ -519,6 +525,7 @@ export default function Home() {
   const [appointmentClientFilter, setAppointmentClientFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("toate");
   const [selectedMonth, setSelectedMonth] = useState(() => todayIso().slice(0, 7));
+  const [reportMonth, setReportMonth] = useState(() => todayIso().slice(0, 7));
   const [showMonthDayView, setShowMonthDayView] = useState(false);
   const [scrollToEditorTick, setScrollToEditorTick] = useState(0);
   const [pushSupported, setPushSupported] = useState(false);
@@ -955,6 +962,106 @@ export default function Home() {
     ],
     [selectedMonth]
   );
+
+  const reportMonthLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat("ro-RO", {
+        month: "long",
+        year: "numeric",
+      }).format(new Date(`${reportMonth}-01T12:00:00`)),
+    [reportMonth]
+  );
+
+  const reportMonthOptions = useMemo(() => {
+    const nowMonth = toMonthKey(todayIso());
+    const dynamicMonths = appointments.map((appointment) => toMonthKey(appointment.date));
+    const unique = new Set<string>([nowMonth, ...dynamicMonths]);
+    return [...unique].sort((a, b) => b.localeCompare(a)).slice(0, 18);
+  }, [appointments]);
+
+  const reportData = useMemo(() => {
+    const monthAppointments = appointments
+      .filter((appointment) => toMonthKey(appointment.date) === reportMonth)
+      .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
+
+    const nonCancelled = monthAppointments.filter((appointment) => appointment.status !== "Anulata");
+    const totalRevenue = nonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
+    const uniqueClients = new Set(nonCancelled.map((appointment) => appointment.clientId)).size;
+    const avgTicket = nonCancelled.length > 0 ? Math.round(totalRevenue / nonCancelled.length) : 0;
+
+    const statusMap = new Map<string, number>();
+    for (const appointment of monthAppointments) {
+      statusMap.set(appointment.status, (statusMap.get(appointment.status) ?? 0) + 1);
+    }
+
+    const serviceMap = new Map<string, { count: number; revenue: number }>();
+    for (const appointment of nonCancelled) {
+      const current = serviceMap.get(appointment.service) ?? { count: 0, revenue: 0 };
+      current.count += 1;
+      current.revenue += appointment.price;
+      serviceMap.set(appointment.service, current);
+    }
+    const topServices = [...serviceMap.entries()]
+      .map(([name, values]) => ({
+        name,
+        count: values.count,
+        revenue: values.revenue,
+      }))
+      .sort((a, b) => (b.count === a.count ? b.revenue - a.revenue : b.count - a.count))
+      .slice(0, 8);
+
+    const clientMap = new Map<number, { name: string; count: number; revenue: number }>();
+    for (const appointment of nonCancelled) {
+      const current = clientMap.get(appointment.clientId) ?? {
+        name: appointment.clientName,
+        count: 0,
+        revenue: 0,
+      };
+      current.count += 1;
+      current.revenue += appointment.price;
+      clientMap.set(appointment.clientId, current);
+    }
+    const topClients = [...clientMap.values()]
+      .sort((a, b) => (b.count === a.count ? b.revenue - a.revenue : b.count - a.count))
+      .slice(0, 8);
+
+    const dayMap = new Map<string, number>();
+    for (const appointment of nonCancelled) {
+      dayMap.set(appointment.date, (dayMap.get(appointment.date) ?? 0) + 1);
+    }
+    const busiestDays = [...dayMap.entries()]
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => b.count - a.count || a.date.localeCompare(b.date))
+      .slice(0, 6);
+
+    const hourMap = new Map<number, number>();
+    for (const appointment of nonCancelled) {
+      const hour = Number(appointment.start.split(":")[0]);
+      if (Number.isFinite(hour)) {
+        hourMap.set(hour, (hourMap.get(hour) ?? 0) + 1);
+      }
+    }
+    const hourlyLoad = Array.from({ length: 14 }, (_, index) => {
+      const hour = 8 + index;
+      return {
+        label: `${`${hour}`.padStart(2, "0")}:00`,
+        count: hourMap.get(hour) ?? 0,
+      };
+    });
+
+    return {
+      monthAppointments,
+      nonCancelled,
+      totalRevenue,
+      uniqueClients,
+      avgTicket,
+      statusMap,
+      topServices,
+      topClients,
+      busiestDays,
+      hourlyLoad,
+    };
+  }, [appointments, reportMonth]);
 
   const dailyRevenue = appointmentsForSelectedDate
     .filter((appointment) => appointment.status !== "Anulata")
@@ -3587,6 +3694,146 @@ export default function Home() {
           </section>
         ) : null}
 
+        {activeTab === "reports" ? (
+          <section className="mt-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Rapoarte</h2>
+              <span className="text-sm capitalize text-muted">{reportMonthLabel}</span>
+            </div>
+
+            <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+              {reportMonthOptions.map((monthKey) => (
+                <button
+                  key={monthKey}
+                  className={`rounded-[8px] border px-3 py-2 text-sm whitespace-nowrap ${
+                    reportMonth === monthKey
+                      ? "border-gold bg-gold text-black"
+                      : "border-line bg-panel text-muted"
+                  }`}
+                  onClick={() => setReportMonth(monthKey)}
+                  type="button"
+                >
+                  {new Intl.DateTimeFormat("ro-RO", {
+                    month: "short",
+                    year: "2-digit",
+                  }).format(new Date(`${monthKey}-01T12:00:00`))}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">Programari</p>
+                <p className="mt-1 text-xl font-semibold">{reportData.monthAppointments.length}</p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">Venit total</p>
+                <p className="mt-1 text-xl font-semibold text-gold">{formatPrice(reportData.totalRevenue)}</p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">Cliente active</p>
+                <p className="mt-1 text-xl font-semibold">{reportData.uniqueClients}</p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">Bon mediu</p>
+                <p className="mt-1 text-xl font-semibold">{formatPrice(reportData.avgTicket)}</p>
+              </div>
+            </div>
+
+            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Status programari</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                {["Noua", "Confirmata", "Reminder maine", "Finalizata", "Anulata"].map((status) => (
+                  <div key={status} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                    <p className="text-xs text-muted">{status}</p>
+                    <p className="mt-1 font-semibold">{reportData.statusMap.get(status) ?? 0}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Top servicii</p>
+              {reportData.topServices.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {reportData.topServices.map((service) => {
+                    const max = reportData.topServices[0]?.count ?? 1;
+                    const width = Math.max(8, Math.round((service.count / max) * 100));
+                    return (
+                      <div key={service.name} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <p className="font-medium">{service.name}</p>
+                          <p className="text-muted">{service.count} sedinte</p>
+                        </div>
+                        <div className="mt-2 h-2 rounded-[4px] bg-[#232323]">
+                          <div className="h-2 rounded-[4px] bg-gold" style={{ width: `${width}%` }} />
+                        </div>
+                        <p className="mt-1 text-xs text-muted">Venit {formatPrice(service.revenue)}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-muted">Nu exista date pentru luna selectata.</p>
+              )}
+            </div>
+
+            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Top cliente</p>
+              {reportData.topClients.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {reportData.topClients.map((client) => (
+                    <div key={`${client.name}-${client.count}`} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium">{client.name}</p>
+                        <p className="text-sm text-muted">{client.count} vizite</p>
+                      </div>
+                      <p className="mt-1 text-xs text-muted">Valoare: {formatPrice(client.revenue)}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-muted">Nu exista cliente active in luna selectata.</p>
+              )}
+            </div>
+
+            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Zile aglomerate</p>
+              {reportData.busiestDays.length > 0 ? (
+                <div className="mt-3 grid gap-2">
+                  {reportData.busiestDays.map((day) => (
+                    <div key={day.date} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                      <p className="text-sm">{formatShortDate(day.date)}</p>
+                      <p className="text-xs text-muted">{day.count} programari</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-muted">Nu exista zile aglomerate in aceasta luna.</p>
+              )}
+            </div>
+
+            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Distribuire pe ore</p>
+              <div className="mt-3 space-y-2">
+                {reportData.hourlyLoad.map((slot) => {
+                  const max = Math.max(1, ...reportData.hourlyLoad.map((item) => item.count));
+                  const width = slot.count === 0 ? 6 : Math.max(8, Math.round((slot.count / max) * 100));
+                  return (
+                    <div key={slot.label} className="grid grid-cols-[52px_1fr_38px] items-center gap-2">
+                      <p className="text-xs text-muted">{slot.label}</p>
+                      <div className="h-2 rounded-[4px] bg-[#232323]">
+                        <div className="h-2 rounded-[4px] bg-[#d4b578]" style={{ width: `${width}%` }} />
+                      </div>
+                      <p className="text-right text-xs text-muted">{slot.count}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        ) : null}
+
         {activeTab === "settings" ? (
           <section className="mt-6">
             <div className="mb-3 flex items-center justify-between">
@@ -3692,16 +3939,29 @@ export default function Home() {
                     >
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold">{day.label}</p>
-                        <label className="flex items-center gap-2 text-xs text-muted">
-                          <input
-                            checked={settings.enabled}
-                            onChange={(event) =>
-                              updateBusinessDay(day.key, { enabled: event.target.checked })
-                            }
-                            type="checkbox"
-                          />
-                          activ
-                        </label>
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-1 text-xs text-muted">
+                            <input
+                              checked={settings.enabled}
+                              onChange={(event) =>
+                                updateBusinessDay(day.key, { enabled: event.target.checked })
+                              }
+                              type="checkbox"
+                            />
+                            activ
+                          </label>
+                          <label className="flex items-center gap-1 text-xs text-muted">
+                            <input
+                              checked={settings.hasBreak}
+                              disabled={!settings.enabled}
+                              onChange={(event) =>
+                                updateBusinessDay(day.key, { hasBreak: event.target.checked })
+                              }
+                              type="checkbox"
+                            />
+                            pauza
+                          </label>
+                        </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <label className="grid gap-1 text-xs text-muted">
@@ -3732,7 +3992,7 @@ export default function Home() {
                           <span>Pauza start</span>
                           <input
                             className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
-                            disabled={!settings.enabled}
+                            disabled={!settings.enabled || !settings.hasBreak}
                             onChange={(event) =>
                               updateBusinessDay(day.key, { breakStart: event.target.value })
                             }
@@ -3744,7 +4004,7 @@ export default function Home() {
                           <span>Pauza final</span>
                           <input
                             className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
-                            disabled={!settings.enabled}
+                            disabled={!settings.enabled || !settings.hasBreak}
                             onChange={(event) =>
                               updateBusinessDay(day.key, { breakEnd: event.target.value })
                             }
@@ -3953,23 +4213,94 @@ export default function Home() {
           </div>
         ) : null}
 
-        <nav className="gold-ring fixed inset-x-4 bottom-4 mx-auto flex w-auto max-w-md items-center justify-between rounded-[8px] border border-line bg-black/95 px-2 py-3 backdrop-blur">
+        <nav className="gold-ring fixed inset-x-4 bottom-4 mx-auto grid w-full max-w-md grid-cols-6 items-center gap-1 rounded-[8px] border border-line bg-black/95 px-2 py-2 backdrop-blur">
           {[
-            { label: "Acasa", key: "home" as const },
-            { label: "Luna", key: "month" as const },
-            { label: "Programari", key: "appointments" as const },
-            { label: "Cliente", key: "clients" as const },
-            { label: "Setari", key: "settings" as const },
-          ].map(({ label, key }) => (
+            {
+              label: "Acasa",
+              short: "Home",
+              key: "home" as const,
+              icon: [
+                "M3 10.5 12 3l9 7.5",
+                "M6 9.5V20h12V9.5",
+                "M10 20v-5h4v5",
+              ],
+            },
+            {
+              label: "Luna",
+              short: "Luna",
+              key: "month" as const,
+              icon: [
+                "M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z",
+                "M8 3v4",
+                "M16 3v4",
+                "M4 10h16",
+              ],
+            },
+            {
+              label: "Programari",
+              short: "Prog",
+              key: "appointments" as const,
+              icon: [
+                "M7 4.5h10a1.5 1.5 0 0 1 1.5 1.5v13A1.5 1.5 0 0 1 17 20.5H7A1.5 1.5 0 0 1 5.5 19V6A1.5 1.5 0 0 1 7 4.5Z",
+                "M9 9h6",
+                "M9 12.5h6",
+                "M9 16h4",
+              ],
+            },
+            {
+              label: "Cliente",
+              short: "Cliente",
+              key: "clients" as const,
+              icon: [
+                "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+                "M4 20a8 8 0 0 1 16 0",
+              ],
+            },
+            {
+              label: "Rapoarte",
+              short: "Rap",
+              key: "reports" as const,
+              icon: [
+                "M4 20h16",
+                "M7 20v-7",
+                "M12 20V9",
+                "M17 20v-4",
+              ],
+            },
+            {
+              label: "Setari",
+              short: "Setari",
+              key: "settings" as const,
+              icon: [
+                "M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z",
+                "M19 12l-1.4.4a5.9 5.9 0 0 1-.3.8l.8 1.2-1.5 1.5-1.2-.8a5.9 5.9 0 0 1-.8.3L14.2 19h-2.4l-.4-1.4a5.9 5.9 0 0 1-.8-.3l-1.2.8-1.5-1.5.8-1.2a5.9 5.9 0 0 1-.3-.8L5 14.2v-2.4l1.4-.4a5.9 5.9 0 0 1 .3-.8l-.8-1.2L7.4 7.9l1.2.8a5.9 5.9 0 0 1 .8-.3L9.8 7h2.4l.4 1.4a5.9 5.9 0 0 1 .8.3l1.2-.8 1.5 1.5-.8 1.2a5.9 5.9 0 0 1 .3.8l1.4.4v2.4Z",
+              ],
+            },
+          ].map(({ label, short, key, icon }) => (
             <button
               key={label}
-              className={`min-w-[58px] rounded-[8px] px-2 py-2 text-sm font-medium ${
+              className={`min-w-0 overflow-hidden rounded-[8px] px-0.5 py-1 text-center text-[9px] font-medium leading-3 whitespace-nowrap sm:px-1 sm:py-2 sm:text-[10px] ${
                 activeTab === key ? "bg-gold text-black" : "text-muted"
               }`}
               onClick={() => setActiveTab(key)}
               type="button"
             >
-              {label}
+              <span className="mx-auto mb-1.5 block h-4 w-4">
+                <svg
+                  className="h-full w-full"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                  viewBox="0 0 24 24"
+                >
+                  {icon.map((path: string) => (
+                    <path d={path} key={path} />
+                  ))}
+                </svg>
+              </span>
+              <span className="block">{short}</span>
             </button>
           ))}
         </nav>
