@@ -74,6 +74,7 @@ type PushLog = {
   reminders_count: number;
   created_at: string;
 };
+type SupabaseAppointmentRowWithoutNotes = Omit<SupabaseAppointmentRow, "notes">;
 type SaveWarning = {
   title: string;
   details: string[];
@@ -658,16 +659,20 @@ export default function Home() {
         setIsLoading(false);
         return;
       }
+      const supabaseClient = supabase;
 
       const fetchAllRows = async <T,>(
-        fetchPage: (from: number, to: number) => Promise<{ data: T[] | null; error: { message: string } | null }>,
+        fetchPage: (
+          from: number,
+          to: number,
+        ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
       ) => {
         let from = 0;
         const all: T[] = [];
 
         while (true) {
           const to = from + SUPABASE_PAGE_SIZE - 1;
-          const page = await fetchPage(from, to);
+          const page = await Promise.resolve(fetchPage(from, to));
           if (page.error) {
             return { data: null as T[] | null, error: page.error };
           }
@@ -684,11 +689,11 @@ export default function Home() {
       };
 
       const clientsPromise = fetchAllRows<SupabaseClientRow>((from, to) =>
-        supabase.from("clients").select("*").order("name", { ascending: true }).range(from, to),
+        supabaseClient.from("clients").select("*").order("name", { ascending: true }).range(from, to),
       );
 
       const appointmentsWithNotesPromise = fetchAllRows<SupabaseAppointmentRow>((from, to) =>
-        supabase
+        supabaseClient
           .from("appointments")
           .select(APPOINTMENT_SELECT_WITH_NOTES)
           .order("appointment_date", { ascending: true })
@@ -697,7 +702,7 @@ export default function Home() {
       );
 
       const servicesPromise = fetchAllRows<SupabaseServiceRow>((from, to) =>
-        supabase.from("services").select("*").order("name", { ascending: true }).range(from, to),
+        supabaseClient.from("services").select("*").order("name", { ascending: true }).range(from, to),
       );
 
       const [clientsResponse, appointmentsResponse, servicesResponse] = await Promise.all([
@@ -712,8 +717,8 @@ export default function Home() {
       let hasServicesTable = !servicesResponse.error;
 
       if (appointmentsResponse.error) {
-        const fallbackAppointments = await fetchAllRows<SupabaseAppointmentRow>((from, to) =>
-          supabase
+        const fallbackAppointments = await fetchAllRows<SupabaseAppointmentRowWithoutNotes>((from, to) =>
+          supabaseClient
             .from("appointments")
             .select(APPOINTMENT_SELECT_WITHOUT_NOTES)
             .order("appointment_date", { ascending: true })
@@ -721,7 +726,7 @@ export default function Home() {
             .range(from, to),
         );
 
-        if (fallbackAppointments.error) {
+        if (fallbackAppointments.error || !fallbackAppointments.data) {
           console.error("Appointments error:", fallbackAppointments.error);
         } else {
           appointmentRows = fallbackAppointments.data.map((row) => ({
@@ -740,7 +745,7 @@ export default function Home() {
         serviceRows = servicesResponse.data as SupabaseServiceRow[];
       }
 
-      if (clientsResponse.error) {
+      if (clientsResponse.error || !clientsResponse.data) {
         console.error("Clients error:", clientsResponse.error);
         const local = readLocalStore();
         setClients(local.clients);
