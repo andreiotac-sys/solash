@@ -32,6 +32,7 @@ const APPOINTMENT_SELECT_WITH_NOTES =
   "id, client_id, service, appointment_date, start_time, duration, price, status, notes, clients(name, phone)";
 const APPOINTMENT_SELECT_WITHOUT_NOTES =
   "id, client_id, service, appointment_date, start_time, duration, price, status, clients(name, phone)";
+const SUPABASE_PAGE_SIZE = 1000;
 const DEFAULT_DAY_START = "08:00";
 const DEFAULT_DAY_END = "21:00";
 const DEFAULT_BREAK_START = "13:00";
@@ -658,20 +659,46 @@ export default function Home() {
         return;
       }
 
-      const clientsPromise = supabase.from("clients").select("*").order("name", {
-        ascending: true,
-      });
+      const fetchAllRows = async <T,>(
+        fetchPage: (from: number, to: number) => Promise<{ data: T[] | null; error: { message: string } | null }>,
+      ) => {
+        let from = 0;
+        const all: T[] = [];
 
-      const appointmentsWithNotesPromise = supabase
-        .from("appointments")
-        .select(APPOINTMENT_SELECT_WITH_NOTES)
-        .order("appointment_date", { ascending: true })
-        .order("start_time", { ascending: true });
+        while (true) {
+          const to = from + SUPABASE_PAGE_SIZE - 1;
+          const page = await fetchPage(from, to);
+          if (page.error) {
+            return { data: null as T[] | null, error: page.error };
+          }
 
-      const servicesPromise = supabase
-        .from("services")
-        .select("*")
-        .order("name", { ascending: true });
+          const rows = page.data ?? [];
+          all.push(...rows);
+          if (rows.length < SUPABASE_PAGE_SIZE) {
+            break;
+          }
+          from += SUPABASE_PAGE_SIZE;
+        }
+
+        return { data: all, error: null as { message: string } | null };
+      };
+
+      const clientsPromise = fetchAllRows<SupabaseClientRow>((from, to) =>
+        supabase.from("clients").select("*").order("name", { ascending: true }).range(from, to),
+      );
+
+      const appointmentsWithNotesPromise = fetchAllRows<SupabaseAppointmentRow>((from, to) =>
+        supabase
+          .from("appointments")
+          .select(APPOINTMENT_SELECT_WITH_NOTES)
+          .order("appointment_date", { ascending: true })
+          .order("start_time", { ascending: true })
+          .range(from, to),
+      );
+
+      const servicesPromise = fetchAllRows<SupabaseServiceRow>((from, to) =>
+        supabase.from("services").select("*").order("name", { ascending: true }).range(from, to),
+      );
 
       const [clientsResponse, appointmentsResponse, servicesResponse] = await Promise.all([
         clientsPromise,
@@ -685,11 +712,14 @@ export default function Home() {
       let hasServicesTable = !servicesResponse.error;
 
       if (appointmentsResponse.error) {
-        const fallbackAppointments = await supabase
-          .from("appointments")
-          .select(APPOINTMENT_SELECT_WITHOUT_NOTES)
-          .order("appointment_date", { ascending: true })
-          .order("start_time", { ascending: true });
+        const fallbackAppointments = await fetchAllRows<SupabaseAppointmentRow>((from, to) =>
+          supabase
+            .from("appointments")
+            .select(APPOINTMENT_SELECT_WITHOUT_NOTES)
+            .order("appointment_date", { ascending: true })
+            .order("start_time", { ascending: true })
+            .range(from, to),
+        );
 
         if (fallbackAppointments.error) {
           console.error("Appointments error:", fallbackAppointments.error);
