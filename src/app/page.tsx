@@ -876,43 +876,61 @@ export default function Home() {
         }
     > = [];
     const windows = workWindowsForSelectedDate;
-    const busyById = new Set<number>();
-    for (const windowRange of windows) {
-      let cursor = windowRange.start;
-      for (const appointment of active) {
-        const appointmentStart = timeToMinutes(appointment.start);
-        const appointmentEnd = appointmentStart + parseDurationToMinutes(appointment.duration);
-        const start = Math.max(windowRange.start, appointmentStart);
-        const end = Math.min(windowRange.end, appointmentEnd);
-        if (end <= start) {
-          continue;
-        }
-        if (start > cursor) {
-          segments.push({
-            kind: "free",
-            start: cursor,
-            end: start,
-            minutes: start - cursor,
-          });
-        }
-        segments.push({
-          kind: "busy",
-          start,
-          end,
-          minutes: end - start,
+    if (windows.length === 0) {
+      return {
+        segments,
+        totalFreeMinutes: 0,
+        totalWorkMinutes: 0,
+        activeCount: 0,
+        isDayOff: true,
+      };
+    }
+
+    const dayStart = windows[0].start;
+    const dayEnd = windows[windows.length - 1].end;
+
+    const busySegments = active
+      .map((appointment) => {
+        const start = timeToMinutes(appointment.start);
+        const end = start + parseDurationToMinutes(appointment.duration);
+        return {
           appointment,
-        });
-        busyById.add(appointment.id);
-        cursor = Math.max(cursor, end);
-      }
-      if (cursor < windowRange.end) {
+          start: Math.max(start, dayStart),
+          end: Math.min(end, dayEnd),
+        };
+      })
+      .filter((segment) => segment.end > segment.start)
+      .sort((a, b) => a.start - b.start);
+
+    let cursor = dayStart;
+    for (const busy of busySegments) {
+      if (busy.start > cursor) {
         segments.push({
           kind: "free",
           start: cursor,
-          end: windowRange.end,
-          minutes: windowRange.end - cursor,
+          end: busy.start,
+          minutes: busy.start - cursor,
         });
       }
+
+      segments.push({
+        kind: "busy",
+        start: busy.start,
+        end: busy.end,
+        minutes: busy.end - busy.start,
+        appointment: busy.appointment,
+      });
+
+      cursor = Math.max(cursor, busy.end);
+    }
+
+    if (cursor < dayEnd) {
+      segments.push({
+        kind: "free",
+        start: cursor,
+        end: dayEnd,
+        minutes: dayEnd - cursor,
+      });
     }
 
     const totalFreeMinutes = segments
@@ -927,8 +945,8 @@ export default function Home() {
       segments,
       totalFreeMinutes,
       totalWorkMinutes,
-      activeCount: busyById.size,
-      isDayOff: windows.length === 0,
+      activeCount: busySegments.length,
+      isDayOff: false,
     };
   }, [appointmentsForDayAll, workWindowsForSelectedDate]);
 
