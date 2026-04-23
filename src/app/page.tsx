@@ -1025,15 +1025,38 @@ export default function Home() {
     [reportMonth]
   );
 
-  const reportMonthOptions = useMemo(() => {
-    const nowMonth = toMonthKey(todayIso());
-    const dynamicMonths = appointments.map((appointment) => toMonthKey(appointment.date));
-    const unique = new Set<string>([nowMonth, ...dynamicMonths]);
-    return [...unique].sort((a, b) => b.localeCompare(a)).slice(0, 18);
+  const reportYear = reportMonth.slice(0, 4);
+
+  const reportYearOptions = useMemo(() => {
+    const currentYear = todayIso().slice(0, 4);
+    const years = new Set<string>([currentYear, ...appointments.map((appointment) => appointment.date.slice(0, 4))]);
+    return [...years].sort((a, b) => b.localeCompare(a));
   }, [appointments]);
 
+  const reportMonthOptions = useMemo(() => {
+    return Array.from({ length: 12 }, (_, index) => {
+      const month = `${index + 1}`.padStart(2, "0");
+      return `${reportYear}-${month}`;
+    });
+  }, [reportYear]);
+
   const reportData = useMemo(() => {
-    const monthAppointments = appointments
+    const allAppointments = appointments
+      .filter((appointment) => appointment.date >= "2023-01-01")
+      .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
+    const allNonCancelled = allAppointments.filter((appointment) => appointment.status !== "Anulata");
+
+    const allRevenue = allNonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
+    const allUniqueClients = new Set(allNonCancelled.map((appointment) => appointment.clientId)).size;
+    const allAvgTicket = allNonCancelled.length > 0 ? Math.round(allRevenue / allNonCancelled.length) : 0;
+
+    const yearAppointments = allAppointments.filter((appointment) => appointment.date.startsWith(`${reportYear}-`));
+    const yearNonCancelled = yearAppointments.filter((appointment) => appointment.status !== "Anulata");
+    const yearRevenue = yearNonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
+    const yearUniqueClients = new Set(yearNonCancelled.map((appointment) => appointment.clientId)).size;
+    const yearAvgTicket = yearNonCancelled.length > 0 ? Math.round(yearRevenue / yearNonCancelled.length) : 0;
+
+    const monthAppointments = yearAppointments
       .filter((appointment) => toMonthKey(appointment.date) === reportMonth)
       .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
 
@@ -1063,6 +1086,40 @@ export default function Home() {
       .sort((a, b) => (b.count === a.count ? b.revenue - a.revenue : b.count - a.count))
       .slice(0, 8);
 
+    const allTimeClientMap = new Map<number, { name: string; count: number; revenue: number; lastDate: string }>();
+    for (const appointment of allNonCancelled) {
+      const current = allTimeClientMap.get(appointment.clientId) ?? {
+        name: appointment.clientName,
+        count: 0,
+        revenue: 0,
+        lastDate: appointment.date,
+      };
+      current.count += 1;
+      current.revenue += appointment.price;
+      if (appointment.date > current.lastDate) {
+        current.lastDate = appointment.date;
+      }
+      allTimeClientMap.set(appointment.clientId, current);
+    }
+    const topClientsAllTime = [...allTimeClientMap.values()]
+      .sort((a, b) => (b.revenue === a.revenue ? b.count - a.count : b.revenue - a.revenue))
+      .slice(0, 12);
+
+    const yearClientMap = new Map<number, { name: string; count: number; revenue: number }>();
+    for (const appointment of yearNonCancelled) {
+      const current = yearClientMap.get(appointment.clientId) ?? {
+        name: appointment.clientName,
+        count: 0,
+        revenue: 0,
+      };
+      current.count += 1;
+      current.revenue += appointment.price;
+      yearClientMap.set(appointment.clientId, current);
+    }
+    const topClientsYear = [...yearClientMap.values()]
+      .sort((a, b) => (b.revenue === a.revenue ? b.count - a.count : b.revenue - a.revenue))
+      .slice(0, 8);
+
     const clientMap = new Map<number, { name: string; count: number; revenue: number }>();
     for (const appointment of nonCancelled) {
       const current = clientMap.get(appointment.clientId) ?? {
@@ -1077,6 +1134,47 @@ export default function Home() {
     const topClients = [...clientMap.values()]
       .sort((a, b) => (b.count === a.count ? b.revenue - a.revenue : b.count - a.count))
       .slice(0, 8);
+
+    const yearMonthMap = new Map<string, { revenue: number; count: number; clients: Set<number> }>();
+    for (let month = 1; month <= 12; month += 1) {
+      const mm = `${month}`.padStart(2, "0");
+      yearMonthMap.set(`${reportYear}-${mm}`, { revenue: 0, count: 0, clients: new Set<number>() });
+    }
+    for (const appointment of yearNonCancelled) {
+      const key = toMonthKey(appointment.date);
+      const current = yearMonthMap.get(key) ?? { revenue: 0, count: 0, clients: new Set<number>() };
+      current.revenue += appointment.price;
+      current.count += 1;
+      current.clients.add(appointment.clientId);
+      yearMonthMap.set(key, current);
+    }
+    const monthlyInYear = [...yearMonthMap.entries()]
+      .map(([key, value]) => ({
+        key,
+        label: new Intl.DateTimeFormat("ro-RO", { month: "short" }).format(new Date(`${key}-01T12:00:00`)),
+        revenue: value.revenue,
+        count: value.count,
+        clients: value.clients.size,
+      }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+
+    const yearMap = new Map<string, { revenue: number; count: number; clients: Set<number> }>();
+    for (const appointment of allNonCancelled) {
+      const y = appointment.date.slice(0, 4);
+      const current = yearMap.get(y) ?? { revenue: 0, count: 0, clients: new Set<number>() };
+      current.revenue += appointment.price;
+      current.count += 1;
+      current.clients.add(appointment.clientId);
+      yearMap.set(y, current);
+    }
+    const byYear = [...yearMap.entries()]
+      .map(([year, value]) => ({
+        year,
+        revenue: value.revenue,
+        count: value.count,
+        clients: value.clients.size,
+      }))
+      .sort((a, b) => b.year.localeCompare(a.year));
 
     const dayMap = new Map<string, number>();
     for (const appointment of nonCancelled) {
@@ -1103,6 +1201,16 @@ export default function Home() {
     });
 
     return {
+      allAppointments,
+      allNonCancelled,
+      allRevenue,
+      allUniqueClients,
+      allAvgTicket,
+      yearAppointments,
+      yearNonCancelled,
+      yearRevenue,
+      yearUniqueClients,
+      yearAvgTicket,
       monthAppointments,
       nonCancelled,
       totalRevenue,
@@ -1110,11 +1218,15 @@ export default function Home() {
       avgTicket,
       statusMap,
       topServices,
+      topClientsAllTime,
+      topClientsYear,
       topClients,
+      monthlyInYear,
+      byYear,
       busiestDays,
       hourlyLoad,
     };
-  }, [appointments, reportMonth]);
+  }, [appointments, reportMonth, reportYear]);
 
   const dailyRevenue = appointmentsForSelectedDate
     .filter((appointment) => appointment.status !== "Anulata")
@@ -3751,7 +3863,24 @@ export default function Home() {
           <section className="mt-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Rapoarte</h2>
-              <span className="text-sm capitalize text-muted">{reportMonthLabel}</span>
+              <span className="text-sm text-muted">Total • An • Luna</span>
+            </div>
+
+            <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+              {reportYearOptions.map((year) => (
+                <button
+                  key={year}
+                  className={`rounded-[8px] border px-3 py-2 text-sm whitespace-nowrap ${
+                    reportYear === year
+                      ? "border-gold bg-gold text-black"
+                      : "border-line bg-panel text-muted"
+                  }`}
+                  onClick={() => setReportMonth(`${year}-${reportMonth.slice(5, 7)}`)}
+                  type="button"
+                >
+                  {year}
+                </button>
+              ))}
             </div>
 
             <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
@@ -3774,27 +3903,54 @@ export default function Home() {
               ))}
             </div>
 
+            <div className="mb-3 rounded-[8px] border border-line bg-panel-soft px-4 py-3">
+              <p className="text-xs text-muted">Luna selectata</p>
+              <p className="mt-1 text-sm capitalize text-foreground">{reportMonthLabel}</p>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Programari</p>
-                <p className="mt-1 text-xl font-semibold">{reportData.monthAppointments.length}</p>
+                <p className="text-xs text-muted">Venit total (toate)</p>
+                <p className="mt-1 text-xl font-semibold text-gold">{formatPrice(reportData.allRevenue)}</p>
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Venit total</p>
-                <p className="mt-1 text-xl font-semibold text-gold">{formatPrice(reportData.totalRevenue)}</p>
+                <p className="text-xs text-muted">Programari totale</p>
+                <p className="mt-1 text-xl font-semibold">{reportData.allAppointments.length}</p>
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Cliente active</p>
-                <p className="mt-1 text-xl font-semibold">{reportData.uniqueClients}</p>
+                <p className="text-xs text-muted">Cliente totale</p>
+                <p className="mt-1 text-xl font-semibold">{reportData.allUniqueClients}</p>
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Bon mediu</p>
-                <p className="mt-1 text-xl font-semibold">{formatPrice(reportData.avgTicket)}</p>
+                <p className="text-xs text-muted">Bon mediu total</p>
+                <p className="mt-1 text-xl font-semibold">{formatPrice(reportData.allAvgTicket)}</p>
               </div>
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Status programari</p>
+              <p className="text-sm font-semibold">Rezumat an {reportYear}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                  <p className="text-xs text-muted">Venit an</p>
+                  <p className="mt-1 font-semibold text-gold">{formatPrice(reportData.yearRevenue)}</p>
+                </div>
+                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                  <p className="text-xs text-muted">Programari an</p>
+                  <p className="mt-1 font-semibold">{reportData.yearAppointments.length}</p>
+                </div>
+                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                  <p className="text-xs text-muted">Cliente active an</p>
+                  <p className="mt-1 font-semibold">{reportData.yearUniqueClients}</p>
+                </div>
+                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                  <p className="text-xs text-muted">Bon mediu an</p>
+                  <p className="mt-1 font-semibold">{formatPrice(reportData.yearAvgTicket)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Status programari (luna)</p>
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                 {["Noua", "Confirmata", "Reminder maine", "Finalizata", "Anulata"].map((status) => (
                   <div key={status} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
@@ -3806,7 +3962,29 @@ export default function Home() {
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Top servicii</p>
+              <p className="text-sm font-semibold">Top cliente (all-time)</p>
+              {reportData.topClientsAllTime.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {reportData.topClientsAllTime.map((client) => (
+                    <div key={`${client.name}-${client.count}-${client.lastDate}`} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium">{client.name}</p>
+                        <p className="text-sm text-muted">{client.count} vizite</p>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-xs text-muted">
+                        <span>Valoare: {formatPrice(client.revenue)}</span>
+                        <span>Ultima: {formatShortDate(client.lastDate)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-muted">Nu exista cliente active.</p>
+              )}
+            </div>
+
+            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Top servicii (luna)</p>
               {reportData.topServices.length > 0 ? (
                 <div className="mt-3 space-y-2">
                   {reportData.topServices.map((service) => {
@@ -3832,10 +4010,10 @@ export default function Home() {
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Top cliente</p>
-              {reportData.topClients.length > 0 ? (
+              <p className="text-sm font-semibold">Top cliente (an {reportYear})</p>
+              {reportData.topClientsYear.length > 0 ? (
                 <div className="mt-3 space-y-2">
-                  {reportData.topClients.map((client) => (
+                  {reportData.topClientsYear.map((client) => (
                     <div key={`${client.name}-${client.count}`} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium">{client.name}</p>
@@ -3846,8 +4024,42 @@ export default function Home() {
                   ))}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-muted">Nu exista cliente active in luna selectata.</p>
+                <p className="mt-3 text-sm text-muted">Nu exista cliente active in anul selectat.</p>
               )}
+            </div>
+
+            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Venit pe luni ({reportYear})</p>
+              <div className="mt-3 space-y-2">
+                {reportData.monthlyInYear.map((month) => {
+                  const max = Math.max(1, ...reportData.monthlyInYear.map((item) => item.revenue));
+                  const width = month.revenue === 0 ? 6 : Math.max(8, Math.round((month.revenue / max) * 100));
+                  return (
+                    <div key={month.key} className="grid grid-cols-[46px_1fr_72px] items-center gap-2">
+                      <p className="text-xs text-muted uppercase">{month.label}</p>
+                      <div className="h-2 rounded-[4px] bg-[#232323]">
+                        <div className="h-2 rounded-[4px] bg-gold" style={{ width: `${width}%` }} />
+                      </div>
+                      <p className="text-right text-xs text-muted">{formatPrice(month.revenue)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Rezumat pe ani</p>
+              <div className="mt-3 space-y-2">
+                {reportData.byYear.map((row) => (
+                  <div key={row.year} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium">{row.year}</p>
+                      <p className="text-sm text-gold">{formatPrice(row.revenue)}</p>
+                    </div>
+                    <p className="mt-1 text-xs text-muted">{row.count} programari • {row.clients} cliente</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">

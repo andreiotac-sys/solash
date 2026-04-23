@@ -13,6 +13,38 @@ const MAP_FILE = positional[1]
   ? path.resolve(ROOT, positional[1])
   : path.resolve(ROOT, "import_map_nume_cliente_final_pentru_import.csv");
 const FROM_DATE = "2023-01-01";
+const CLIENT_NAME_OVERRIDES = new Map([
+  ["mama eve", "eve"],
+  ["eve", "eve"],
+]);
+
+const INVALID_SUMMARY_PATTERNS = [
+  /\bprogramare\s+buletin\b/i,
+  /\bbuletin\b/i,
+  /\bunghii\b/i,
+  /\bmanichi(?:ura|ură)?\b/i,
+  /\btaiere\s+mot\b/i,
+  /\bmot\b/i,
+  /\bcurs\b/i,
+  /\bpedi\b/i,
+  /\bmani\s*peri\b/i,
+  /\bluna\s+[a-zăâîșț]+/i,
+  /\b(11\s*590|11\s*440|14\s*925|14\s*990|12\s*720)\b/i,
+  /^\s*\d[\d\s.,]*\s*lei\b/i,
+];
+
+const INVALID_CLIENT_PATTERNS = [
+  /^\s*\d[\d\s.,]*\s*(lei)?\s*$/i,
+  /\blei\b/i,
+  /\bprogramare\b/i,
+  /\bbuletin\b/i,
+  /\bunghii\b/i,
+  /\bmanichi(?:ura|ură)?\b/i,
+  /\btaiere\s+mot\b/i,
+  /\bcurs\b/i,
+  /\bpedi\b/i,
+  /\bmani\s*peri\b/i,
+];
 
 function loadEnvLocal() {
   const envPath = path.resolve(ROOT, ".env.local");
@@ -218,6 +250,20 @@ function hasLetters(value) {
   return /[a-zA-ZăâîșțĂÂÎȘȚ]/.test(value);
 }
 
+function isInvalidSummary(summary) {
+  const cleaned = (summary || "").trim();
+  if (!cleaned) return true;
+  if (!hasLetters(cleaned)) return true;
+  return INVALID_SUMMARY_PATTERNS.some((pattern) => pattern.test(cleaned));
+}
+
+function isInvalidClientName(name) {
+  const cleaned = (name || "").trim();
+  if (!cleaned) return true;
+  if (!hasLetters(cleaned)) return true;
+  return INVALID_CLIENT_PATTERNS.some((pattern) => pattern.test(cleaned));
+}
+
 async function fetchAll(supabase, table, select, orderDefs = []) {
   const pageSize = 1000;
   let from = 0;
@@ -278,6 +324,7 @@ async function run() {
 
   const events = parseIcsEvents(fs.readFileSync(ICS_FILE, "utf8"));
   const expectedBySlot = new Map();
+  const invalidSlotSummaries = new Map();
 
   let skippedNoTime = 0;
   let skippedBeforeRange = 0;
@@ -298,6 +345,13 @@ async function run() {
       continue;
     }
 
+    if (isInvalidSummary(summary)) {
+      const slotKey = `${start.isoDate}|${start.hhmm}`;
+      invalidSlotSummaries.set(slotKey, summary);
+      skippedNonClientRows += 1;
+      continue;
+    }
+
     const slotKey = `${start.isoDate}|${start.hhmm}`;
     if (expectedBySlot.has(slotKey)) {
       dupInIcs += 1;
@@ -315,8 +369,21 @@ async function run() {
     const service = detectService(summary);
     const price = parsePrice(summary) ?? (servicePriceMap.get(service) ?? 0);
 
-    const parsedNorm = normalize(rawClientName);
-    const canonicalNorm = aliasToCanonical.get(parsedNorm) ?? parsedNorm;
+    let parsedNorm = normalize(rawClientName);
+    const directOverride = CLIENT_NAME_OVERRIDES.get(parsedNorm);
+    const hasForcedOverride = Boolean(directOverride);
+    if (directOverride) {
+      parsedNorm = directOverride;
+    }
+    if (parsedNorm.startsWith("mama ") || parsedNorm.startsWith("tata ")) {
+      const stripped = parsedNorm.replace(/^(mama|tata)\s+/, "").trim();
+      if (stripped && clientByNorm.has(stripped)) {
+        parsedNorm = stripped;
+      }
+    }
+    const canonicalNorm = hasForcedOverride
+      ? parsedNorm
+      : aliasToCanonical.get(parsedNorm) ?? parsedNorm;
     const targetNorm = clientByNorm.has(canonicalNorm) ? canonicalNorm : parsedNorm;
     const existingClient = clientByNorm.get(targetNorm) ?? null;
     if (!existingClient) clientsToCreate.set(targetNorm, rawClientName);
@@ -373,7 +440,19 @@ async function run() {
   const insertRows = [];
   const updates = [];
   const deleteIds = [];
+  const invalidAppointmentDeleteIds = [];
+  const invalidAppointmentExamples = [];
   const mismatchExamples = [];
+
+  for (const [slotKey, summary] of invalidSlotSummaries.entries()) {
+    const rows = bySlot.get(slotKey) || [];
+    for (const row of rows) {
+      invalidAppointmentDeleteIds.push(row.id);
+    }
+    if (rows.length > 0 && invalidAppointmentExamples.length < 30) {
+      invalidAppointmentExamples.push({ slot: slotKey, summary, deleted_rows: rows.length });
+    }
+  }
 
   for (const [slotKey, expected] of expectedBySlot.entries()) {
     const rows = bySlot.get(slotKey) || [];
@@ -446,6 +525,43 @@ async function run() {
         if (error) throw error;
       }
     }
+
+    if (invalidAppointmentDeleteIds.length > 0) {
+      const chunk = 300;
+      for (let i = 0; i < invalidAppointmentDeleteIds.length; i += chunk) {
+        const part = invalidAppointmentDeleteIds.slice(i, i + chunk);
+        if (part.length === 0) continue;
+        const { error } = await supabase.from("appointments").delete().in("id", part);
+        if (error) throw error;
+      }
+    }
+
+    const allAppointmentsAfter = await fetchAll(supabase, "appointments", "id,client_id,appointment_date", [
+      { col: "appointment_date", asc: true },
+    ]);
+    const activeClientIds = new Set(allAppointmentsAfter.map((row) => Number(row.client_id)));
+    const invalidClientIds = clients
+      .filter((client) => isInvalidClientName(client.name))
+      .filter((client) => !activeClientIds.has(Number(client.id)))
+      .map((client) => Number(client.id));
+
+    if (invalidClientIds.length > 0) {
+      const chunk = 300;
+      for (let i = 0; i < invalidClientIds.length; i += chunk) {
+        const part = invalidClientIds.slice(i, i + chunk);
+        const { error } = await supabase.from("clients").delete().in("id", part);
+        if (error) throw error;
+      }
+    }
+  }
+
+  let invalidClientsWithoutAppointments = 0;
+  if (!APPLY) {
+    const allAppointmentsAfter = appointments.filter((row) => row.appointment_date >= FROM_DATE);
+    const activeClientIds = new Set(allAppointmentsAfter.map((row) => Number(row.client_id)));
+    invalidClientsWithoutAppointments = clients
+      .filter((client) => isInvalidClientName(client.name))
+      .filter((client) => !activeClientIds.has(Number(client.id))).length;
   }
 
   console.log(
@@ -461,6 +577,8 @@ async function run() {
         skipped_before_range: skippedBeforeRange,
         skipped_non_client_rows: skippedNonClientRows,
         duplicate_slots_in_ics: dupInIcs,
+        invalid_slots_marked_for_delete: invalidSlotSummaries.size,
+        invalid_appointments_to_delete: invalidAppointmentDeleteIds.length,
         unknown_clients_created: createdClients.length,
         still_no_client_after_create: stillNoClient,
         to_insert: toInsert,
@@ -468,6 +586,9 @@ async function run() {
         unchanged: unchanged,
         slot_duplicate_rows_detected: slotDuplicateRows,
         to_delete_slot_extras: toDeleteSlotExtras,
+        invalid_clients_without_appointments:
+          APPLY ? "applied_cleanup" : invalidClientsWithoutAppointments,
+        invalid_appointment_examples: invalidAppointmentExamples,
         mismatch_examples: mismatchExamples,
       },
       null,
