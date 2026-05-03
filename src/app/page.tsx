@@ -993,6 +993,57 @@ export default function Home() {
     };
   }, [appointmentsForDayAll, workWindowsForSelectedDate]);
 
+  const nextAvailableSlot = useMemo(() => {
+    const minimumSlotMinutes = 90;
+    const now = new Date();
+    const nowDateIso = isoFromDate(now);
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+    for (let dayOffset = 0; dayOffset < 45; dayOffset += 1) {
+      const date = new Date(now);
+      date.setHours(12, 0, 0, 0);
+      date.setDate(now.getDate() + dayOffset);
+      const isoDate = isoFromDate(date);
+      const windows = getWorkWindowsForDate(isoDate, businessSettings);
+      if (windows.length === 0) continue;
+
+      const busySegments = appointments
+        .filter((appointment) => appointment.date === isoDate && appointment.status !== "Anulata")
+        .map((appointment) => {
+          const start = timeToMinutes(appointment.start);
+          const end = start + parseDurationToMinutes(appointment.duration);
+          return { start, end };
+        })
+        .sort((a, b) => a.start - b.start);
+
+      for (const windowRange of windows) {
+        let cursor = windowRange.start;
+        if (isoDate === nowDateIso) {
+          cursor = Math.max(cursor, nowMinutes);
+        }
+
+        for (const busy of busySegments) {
+          if (busy.end <= windowRange.start) continue;
+          if (busy.start >= windowRange.end) break;
+          const clampedStart = Math.max(busy.start, windowRange.start);
+          const clampedEnd = Math.min(busy.end, windowRange.end);
+          if (clampedStart > cursor && clampedStart - cursor >= minimumSlotMinutes) {
+            return { date: isoDate, start: cursor };
+          }
+          if (clampedEnd > cursor) {
+            cursor = clampedEnd;
+          }
+        }
+
+        if (windowRange.end - cursor >= minimumSlotMinutes) {
+          return { date: isoDate, start: cursor };
+        }
+      }
+    }
+
+    return null;
+  }, [appointments, businessSettings]);
+
   const currentWeekKey = toWeekKey(appointmentDate);
   const currentMonthKey = toMonthKey(appointmentDate);
   const selectedDateBadge = useMemo(
@@ -1671,24 +1722,6 @@ export default function Home() {
     setAppointmentStatus("Noua");
     setAppointmentNotes("");
     setAppointmentClientFilter("");
-  };
-
-  const suggestNextFreeSlot = () => {
-    const minimumSlotMinutes = Math.max(90, parseDurationToMinutes(appointmentDuration));
-    const freeSegment = dayTimeline.segments.find(
-      (segment) =>
-        segment.kind === "free" &&
-        segment.minutes >= minimumSlotMinutes
-    );
-    if (!freeSegment || freeSegment.kind !== "free") {
-      setToast({
-        text: "Nu exista slot liber de minim 1h 30m (sau durata selectata) in ziua aleasa.",
-        type: "error",
-      });
-      return;
-    }
-    setAppointmentTime(minutesToTime(freeSegment.start));
-    setToast({ text: `Slot propus: ${minutesToTime(freeSegment.start)}`, type: "success" });
   };
 
   const resetClientForm = () => {
@@ -2596,6 +2629,15 @@ export default function Home() {
     setScrollToEditorTick((value) => value + 1);
   };
 
+  const jumpToNextAvailableSlot = () => {
+    if (!nextAvailableSlot) return;
+    setActiveTab("appointments");
+    setActivePanel("appointment");
+    setAppointmentDate(nextAvailableSlot.date);
+    setAppointmentTime(minutesToTime(nextAvailableSlot.start));
+    setScrollToEditorTick((value) => value + 1);
+  };
+
   const handleDeleteAppointment = async (id: number) => {
     if (!confirm("Sigur vrei sa stergi programarea?")) {
       return;
@@ -3153,6 +3195,27 @@ export default function Home() {
                   Nu exista programari viitoare inca.
                 </div>
               )}
+              <div className="mt-3 gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-sm text-muted">Urmatorul slot disponibil (minim 1h 30m)</p>
+                {nextAvailableSlot ? (
+                  <>
+                    <p className="mt-1 text-base font-semibold text-gold">
+                      {formatShortDate(nextAvailableSlot.date)} • {minutesToTime(nextAvailableSlot.start)}
+                    </p>
+                    <button
+                      className="mt-3 rounded-[8px] border border-line bg-panel px-3 py-2 text-sm font-medium"
+                      onClick={jumpToNextAvailableSlot}
+                      type="button"
+                    >
+                      Programeaza pe acest slot
+                    </button>
+                  </>
+                ) : (
+                  <p className="mt-1 text-sm text-muted">
+                    Nu exista slot disponibil in urmatoarele 45 de zile.
+                  </p>
+                )}
+              </div>
             </section>
 
             <section className="mt-6">
@@ -3590,13 +3653,6 @@ export default function Home() {
                           value={appointmentTime}
                         />
                       </label>
-                      <button
-                        className="rounded-[8px] border border-line bg-panel px-3 py-2 text-xs font-medium text-muted"
-                        onClick={suggestNextFreeSlot}
-                        type="button"
-                      >
-                        Propune urmatorul slot liber
-                      </button>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3">
