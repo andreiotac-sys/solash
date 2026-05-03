@@ -1,6 +1,10 @@
 alter table public.clients enable row level security;
 alter table public.appointments enable row level security;
 alter table public.services enable row level security;
+alter table public.push_subscriptions enable row level security;
+alter table public.push_notification_runs enable row level security;
+alter table public.push_appointment_reminders enable row level security;
+alter table public.push_delivery_logs enable row level security;
 
 create policy "Allow authenticated users to read clients"
 on public.clients

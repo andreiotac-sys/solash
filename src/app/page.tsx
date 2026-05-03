@@ -296,6 +296,15 @@ const statusBadgeClass = (status: string) => {
   return "bg-black text-gold";
 };
 
+const statusShortLabel = (status: string) => {
+  if (status === "Confirmata") return "✓ Confirmata";
+  if (status === "Noua") return "• Noua";
+  if (status === "Reminder maine") return "⏰ Reminder";
+  if (status === "Finalizata") return "✔ Finalizata";
+  if (status === "Anulata") return "✕ Anulata";
+  return status;
+};
+
 const defaultSchedule = () =>
   WEEK_DAYS.reduce<Record<number, DayBusinessSettings>>((acc, day) => {
     acc[day.key] = {
@@ -524,6 +533,7 @@ export default function Home() {
   const [serviceActive, setServiceActive] = useState(true);
   const [editingServiceId, setEditingServiceId] = useState<number | null>(null);
   const [clientSearch, setClientSearch] = useState("");
+  const [appointmentSearch, setAppointmentSearch] = useState("");
   const [appointmentClientFilter, setAppointmentClientFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("toate");
   const [selectedMonth, setSelectedMonth] = useState(() => todayIso().slice(0, 7));
@@ -844,9 +854,42 @@ export default function Home() {
     const filtered =
       statusFilter === "toate"
         ? list
+        : statusFilter === "neconfirmate"
+          ? list.filter(
+              (appointment) =>
+                appointment.status === "Noua" ||
+                appointment.status === "Reminder maine"
+            )
         : list.filter((appointment) => appointment.status === statusFilter);
-    return filtered.sort((a, b) => a.start.localeCompare(b.start));
-  }, [appointmentDate, appointments, statusFilter]);
+    const term = appointmentSearch.trim().toLowerCase();
+    const bySearch = !term
+      ? filtered
+      : filtered.filter(
+          (appointment) =>
+            appointment.clientName.toLowerCase().includes(term) ||
+            appointment.service.toLowerCase().includes(term) ||
+            appointment.phone.toLowerCase().includes(term)
+        );
+    return bySearch.sort((a, b) => a.start.localeCompare(b.start));
+  }, [appointmentDate, appointments, statusFilter, appointmentSearch]);
+
+  const mostUsedServiceId = useMemo(() => {
+    const usage = new Map<number, number>();
+    for (const appointment of appointments) {
+      const service = services.find((item) => item.name === appointment.service);
+      if (!service) continue;
+      usage.set(service.id, (usage.get(service.id) ?? 0) + 1);
+    }
+    let bestId = activeServices[0]?.id ?? services[0]?.id ?? baseServices[0]?.id ?? 0;
+    let bestCount = -1;
+    for (const [id, count] of usage.entries()) {
+      if (count > bestCount) {
+        bestCount = count;
+        bestId = id;
+      }
+    }
+    return bestId;
+  }, [appointments, services, activeServices]);
 
   const appointmentsForDayAll = useMemo(
     () =>
@@ -1200,6 +1243,14 @@ export default function Home() {
       };
     });
 
+    const today = todayIso();
+    const todayAppointments = allAppointments.filter((appointment) => appointment.date === today);
+    const todayNonCancelled = todayAppointments.filter((appointment) => appointment.status !== "Anulata");
+    const todayRevenue = todayNonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
+    const todayPendingConfirmations = todayAppointments.filter(
+      (appointment) => appointment.status === "Noua" || appointment.status === "Reminder maine"
+    ).length;
+
     return {
       allAppointments,
       allNonCancelled,
@@ -1225,6 +1276,9 @@ export default function Home() {
       byYear,
       busiestDays,
       hourlyLoad,
+      todayAppointments,
+      todayRevenue,
+      todayPendingConfirmations,
     };
   }, [appointments, reportMonth, reportYear]);
 
@@ -1602,7 +1656,12 @@ export default function Home() {
   }, [businessSettings]);
 
   const resetAppointmentForm = (service?: Service) => {
-    const source = service ?? activeServices[0] ?? services[0] ?? baseServices[0];
+    const mostUsedService =
+      services.find((item) => item.id === mostUsedServiceId) ??
+      activeServices[0] ??
+      services[0] ??
+      baseServices[0];
+    const source = service ?? mostUsedService;
     setEditingAppointmentId(null);
     setSelectedServiceId(source?.id ?? 0);
     setAppointmentTime("10:00");
@@ -1612,6 +1671,24 @@ export default function Home() {
     setAppointmentStatus("Noua");
     setAppointmentNotes("");
     setAppointmentClientFilter("");
+  };
+
+  const suggestNextFreeSlot = () => {
+    const minimumSlotMinutes = Math.max(90, parseDurationToMinutes(appointmentDuration));
+    const freeSegment = dayTimeline.segments.find(
+      (segment) =>
+        segment.kind === "free" &&
+        segment.minutes >= minimumSlotMinutes
+    );
+    if (!freeSegment || freeSegment.kind !== "free") {
+      setToast({
+        text: "Nu exista slot liber de minim 1h 30m (sau durata selectata) in ziua aleasa.",
+        type: "error",
+      });
+      return;
+    }
+    setAppointmentTime(minutesToTime(freeSegment.start));
+    setToast({ text: `Slot propus: ${minutesToTime(freeSegment.start)}`, type: "success" });
   };
 
   const resetClientForm = () => {
@@ -2287,6 +2364,14 @@ export default function Home() {
       setToast({ text: "Adauga mai intai o clienta.", type: "error" });
       return;
     }
+    if (!selectedClient.phone.trim()) {
+      setToast({ text: "Clienta nu are numar de telefon. Completeaza telefonul.", type: "error" });
+      return;
+    }
+    if (appointmentPrice <= 0) {
+      setToast({ text: "Pretul trebuie sa fie mai mare ca 0.", type: "error" });
+      return;
+    }
 
     const service = services.find((item) => item.id === selectedServiceId);
     if (!service) {
@@ -2580,6 +2665,38 @@ export default function Home() {
       )
     );
     setToast({ text: `Status schimbat in ${status}.`, type: "success" });
+  };
+
+  const handleShiftAppointmentMinutes = async (appointment: Appointment, minutes: number) => {
+    const nextStart = minutesToTime(timeToMinutes(appointment.start) + minutes);
+    const dayAppointments = appointments.filter((item) => item.date === appointment.date);
+    if (hasConflict(appointment.id, nextStart, appointment.duration, dayAppointments)) {
+      setToast({ text: "Nu pot muta programarea: se suprapune cu alta.", type: "error" });
+      return;
+    }
+
+    const updated = { ...appointment, start: nextStart };
+    if (!isSupabaseConfigured || !supabase || !session || !isOnline || appointment.id < 0) {
+      const next = appointments.map((item) => (item.id === appointment.id ? updated : item));
+      setAppointments(next);
+      persistLocalState({ appointments: next });
+      if (isSupabaseConfigured) enqueueOfflineOp({ type: "upsert_appointment", record: updated });
+      setToast({ text: `Programare mutata la ${nextStart}.`, type: "success" });
+      return;
+    }
+
+    const { error } = await supabase
+      .from("appointments")
+      .update({ start_time: nextStart })
+      .eq("id", appointment.id);
+    if (error) {
+      setToast({ text: "Nu am putut muta programarea.", type: "error" });
+      return;
+    }
+    setAppointments((current) =>
+      current.map((item) => (item.id === appointment.id ? updated : item))
+    );
+    setToast({ text: `Programare mutata la ${nextStart}.`, type: "success" });
   };
 
   const handleSaveService = async () => {
@@ -3473,6 +3590,13 @@ export default function Home() {
                           value={appointmentTime}
                         />
                       </label>
+                      <button
+                        className="rounded-[8px] border border-line bg-panel px-3 py-2 text-xs font-medium text-muted"
+                        onClick={suggestNextFreeSlot}
+                        type="button"
+                      >
+                        Propune urmatorul slot liber
+                      </button>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3">
@@ -3618,7 +3742,7 @@ export default function Home() {
               </div>
 
               <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-                {["toate", "Noua", "Confirmata", "Reminder maine", "Finalizata", "Anulata"].map(
+                {["toate", "neconfirmate", "Noua", "Confirmata", "Reminder maine", "Finalizata", "Anulata"].map(
                   (status) => (
                     <button
                       key={status}
@@ -3630,11 +3754,25 @@ export default function Home() {
                       onClick={() => setStatusFilter(status)}
                       type="button"
                     >
-                      {status === "toate" ? "Toate" : status}
+                      {status === "toate"
+                        ? "Toate"
+                        : status === "neconfirmate"
+                          ? "Neconfirmate"
+                          : status}
                     </button>
                   )
                 )}
               </div>
+
+              <label className="mb-3 grid gap-2 text-sm">
+                <span className="text-muted">Cauta in programarile zilei</span>
+                <input
+                  className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                  onChange={(event) => setAppointmentSearch(event.target.value)}
+                  placeholder="Nume, serviciu sau telefon"
+                  value={appointmentSearch}
+                />
+              </label>
 
               <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
                 <div className="mb-3 flex items-center justify-between">
@@ -3708,7 +3846,7 @@ export default function Home() {
                         <p className="mt-1 text-sm text-[#ddd4c5]">{appointment.service}</p>
                       </div>
                       <span className={`rounded-[8px] px-2 py-1 text-xs ${statusBadgeClass(appointment.status)}`}>
-                        {appointment.status}
+                        {statusShortLabel(appointment.status)}
                       </span>
                     </div>
 
@@ -3756,6 +3894,30 @@ export default function Home() {
                         {appointment.status === "Confirmata"
                           ? "Reseteaza status"
                           : "Marcheaza confirmata"}
+                      </button>
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-3 gap-2">
+                      <button
+                        className="rounded-[8px] border border-line bg-panel px-3 py-2 text-xs font-medium"
+                        onClick={() => void handleUpdateStatus(appointment.id, "Finalizata")}
+                        type="button"
+                      >
+                        Finalizeaza
+                      </button>
+                      <button
+                        className="rounded-[8px] border border-line bg-panel px-3 py-2 text-xs font-medium"
+                        onClick={() => void handleShiftAppointmentMinutes(appointment, 15)}
+                        type="button"
+                      >
+                        +15 min
+                      </button>
+                      <button
+                        className="rounded-[8px] border border-line bg-panel px-3 py-2 text-xs font-medium"
+                        onClick={() => void handleShiftAppointmentMinutes(appointment, -15)}
+                        type="button"
+                      >
+                        -15 min
                       </button>
                     </div>
 
@@ -3924,6 +4086,25 @@ export default function Home() {
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
                 <p className="text-xs text-muted">Bon mediu total</p>
                 <p className="mt-1 text-xl font-semibold">{formatPrice(reportData.allAvgTicket)}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">Programari azi</p>
+                <p className="mt-1 text-xl font-semibold">{reportData.todayAppointments.length}</p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">Venit azi</p>
+                <p className="mt-1 text-xl font-semibold text-gold">{formatPrice(reportData.todayRevenue)}</p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">De confirmat azi</p>
+                <p className="mt-1 text-xl font-semibold">{reportData.todayPendingConfirmations}</p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">Programari luna</p>
+                <p className="mt-1 text-xl font-semibold">{reportData.monthAppointments.length}</p>
               </div>
             </div>
 

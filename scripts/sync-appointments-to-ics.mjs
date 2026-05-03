@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 const ROOT = process.cwd();
 const rawArgs = process.argv.slice(2);
 const APPLY = rawArgs.includes("--apply");
+const CREATE_UNKNOWN_CLIENTS = rawArgs.includes("--create-clients");
 const CLEAN_SLOT_DUPLICATES = rawArgs.includes("--clean-slot-duplicates");
 const positional = rawArgs.filter((arg) => !arg.startsWith("--"));
 const ICS_FILE = positional[0] ? path.resolve(ROOT, positional[0]) : path.resolve(ROOT, "data-domiciliu.ics");
@@ -44,6 +45,11 @@ const INVALID_CLIENT_PATTERNS = [
   /\bcurs\b/i,
   /\bpedi\b/i,
   /\bmani\s*peri\b/i,
+  /\banpc\b/i,
+  /^\s*eu\b/i,
+  /^\s*par\b/i,
+  /^\s*p[aă]r\b/i,
+  /\bdemontare\b/i,
 ];
 
 function loadEnvLocal() {
@@ -198,6 +204,25 @@ function parsePrice(text) {
   return valid.length ? valid[valid.length - 1] : null;
 }
 
+function parseDurationToMinutes(value) {
+  const normalized = (value || "").toLowerCase();
+  const h = normalized.match(/(\d+)\s*h/);
+  const m = normalized.match(/(\d+)\s*m/);
+  const hh = h ? Number(h[1]) : 0;
+  const mm = m ? Number(m[1]) : 0;
+  return hh * 60 + mm;
+}
+
+function fallbackPriceFromDuration(duration) {
+  const min = parseDurationToMinutes(duration);
+  if (min <= 35) return 60;
+  if (min <= 75) return 150;
+  if (min <= 105) return 220;
+  if (min <= 135) return 250;
+  if (min <= 165) return 300;
+  return 330;
+}
+
 function detectService(summary) {
   const t = normalize(summary);
   const hasSetNou = t.includes("set nou") || t.includes("set") || t.includes("new set");
@@ -262,6 +287,32 @@ function isInvalidClientName(name) {
   if (!cleaned) return true;
   if (!hasLetters(cleaned)) return true;
   return INVALID_CLIENT_PATTERNS.some((pattern) => pattern.test(cleaned));
+}
+
+function isLikelyHumanName(name) {
+  const cleaned = (name || "").trim();
+  if (isInvalidClientName(cleaned)) return false;
+  const n = normalize(cleaned);
+  if (!n) return false;
+  const tokens = n.split(" ").filter(Boolean);
+  if (tokens.length === 0) return false;
+  if (tokens.length === 1 && tokens[0].length < 4) return false;
+  if (tokens.length > 5) return false;
+  const banned = new Set([
+    "eu",
+    "gene",
+    "par",
+    "anpc",
+    "programare",
+    "demontare",
+    "tratament",
+    "buletin",
+    "curs",
+    "mot",
+    "motul",
+  ]);
+  if (tokens.some((t) => banned.has(t))) return false;
+  return true;
 }
 
 async function fetchAll(supabase, table, select, orderDefs = []) {
@@ -367,7 +418,9 @@ async function run() {
     const durationMins = Math.max(15, Math.round((end.jsDate.getTime() - start.jsDate.getTime()) / 60000));
     const duration = formatDurationFromMinutes(durationMins);
     const service = detectService(summary);
-    const price = parsePrice(summary) ?? (servicePriceMap.get(service) ?? 0);
+    const parsedPrice = parsePrice(summary);
+    const serviceDefaultPrice = servicePriceMap.get(service) ?? 0;
+    const price = parsedPrice ?? (serviceDefaultPrice > 0 ? serviceDefaultPrice : null);
 
     let parsedNorm = normalize(rawClientName);
     const directOverride = CLIENT_NAME_OVERRIDES.get(parsedNorm);
@@ -386,7 +439,9 @@ async function run() {
       : aliasToCanonical.get(parsedNorm) ?? parsedNorm;
     const targetNorm = clientByNorm.has(canonicalNorm) ? canonicalNorm : parsedNorm;
     const existingClient = clientByNorm.get(targetNorm) ?? null;
-    if (!existingClient) clientsToCreate.set(targetNorm, rawClientName);
+    if (!existingClient && isLikelyHumanName(rawClientName)) {
+      clientsToCreate.set(targetNorm, rawClientName);
+    }
 
     expectedBySlot.set(slotKey, {
       slotKey,
@@ -404,7 +459,7 @@ async function run() {
   }
 
   const createdClients = [];
-  if (APPLY && clientsToCreate.size > 0) {
+  if (APPLY && CREATE_UNKNOWN_CLIENTS && clientsToCreate.size > 0) {
     for (const [normKey, rawName] of clientsToCreate.entries()) {
       if (clientByNorm.has(normKey)) continue;
       const payload = { name: rawName.slice(0, 120), phone: "", notes: "Creat automat din calendar (sync)" };
@@ -470,7 +525,7 @@ async function run() {
         appointment_date: expected.isoDate,
         start_time: `${expected.hhmm}:00`,
         duration: expected.duration,
-        price: expected.price,
+        price: expected.price ?? fallbackPriceFromDuration(expected.duration),
         status: expected.status,
       });
       continue;
@@ -485,7 +540,9 @@ async function run() {
     if (Number(chosen.client_id) !== Number(expected.clientId)) patch.client_id = expected.clientId;
     if ((chosen.service || "") !== expected.service) patch.service = expected.service;
     if ((chosen.duration || "") !== expected.duration) patch.duration = expected.duration;
-    if (Number(chosen.price || 0) !== Number(expected.price || 0)) patch.price = expected.price;
+    if (expected.price !== null && Number(chosen.price || 0) !== Number(expected.price)) {
+      patch.price = expected.price;
+    }
     if ((chosen.status || "") !== expected.status) patch.status = expected.status;
 
     if (Object.keys(patch).length === 0) {
@@ -568,6 +625,7 @@ async function run() {
     JSON.stringify(
       {
         mode: APPLY ? "apply" : "dry-run",
+        create_unknown_clients: CREATE_UNKNOWN_CLIENTS,
         clean_slot_duplicates: CLEAN_SLOT_DUPLICATES,
         ics_file: ICS_FILE,
         range_from: FROM_DATE,
