@@ -557,6 +557,7 @@ export default function Home() {
   );
   const [daysOffInput, setDaysOffInput] = useState(() => readBusinessSettings().daysOff.join(", "));
   const [saveWarning, setSaveWarning] = useState<SaveWarning | null>(null);
+  const [nextSlotIndex, setNextSlotIndex] = useState(0);
   const [toast, setToast] = useState<{
     text: string;
     type: "success" | "error";
@@ -993,11 +994,13 @@ export default function Home() {
     };
   }, [appointmentsForDayAll, workWindowsForSelectedDate]);
 
-  const nextAvailableSlot = useMemo(() => {
+  const nextAvailableSlots = useMemo(() => {
     const minimumSlotMinutes = 90;
+    const maxSlots = 10;
     const now = new Date();
     const nowDateIso = isoFromDate(now);
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const found: Array<{ date: string; start: number }> = [];
 
     for (let dayOffset = 0; dayOffset < 45; dayOffset += 1) {
       const date = new Date(now);
@@ -1028,7 +1031,10 @@ export default function Home() {
           const clampedStart = Math.max(busy.start, windowRange.start);
           const clampedEnd = Math.min(busy.end, windowRange.end);
           if (clampedStart > cursor && clampedStart - cursor >= minimumSlotMinutes) {
-            return { date: isoDate, start: cursor };
+            found.push({ date: isoDate, start: cursor });
+            if (found.length >= maxSlots) {
+              return found;
+            }
           }
           if (clampedEnd > cursor) {
             cursor = clampedEnd;
@@ -1036,13 +1042,28 @@ export default function Home() {
         }
 
         if (windowRange.end - cursor >= minimumSlotMinutes) {
-          return { date: isoDate, start: cursor };
+          found.push({ date: isoDate, start: cursor });
+          if (found.length >= maxSlots) {
+            return found;
+          }
         }
       }
     }
 
-    return null;
+    return found;
   }, [appointments, businessSettings]);
+
+  const nextAvailableSlot = nextAvailableSlots[nextSlotIndex] ?? null;
+
+  useEffect(() => {
+    if (nextAvailableSlots.length === 0) {
+      if (nextSlotIndex !== 0) setNextSlotIndex(0);
+      return;
+    }
+    if (nextSlotIndex > nextAvailableSlots.length - 1) {
+      setNextSlotIndex(0);
+    }
+  }, [nextAvailableSlots, nextSlotIndex]);
 
   const currentWeekKey = toWeekKey(appointmentDate);
   const currentMonthKey = toMonthKey(appointmentDate);
@@ -3202,6 +3223,31 @@ export default function Home() {
                     <p className="mt-1 text-base font-semibold text-gold">
                       {formatShortDate(nextAvailableSlot.date)} • {minutesToTime(nextAvailableSlot.start)}
                     </p>
+                    <p className="mt-1 text-xs text-muted">
+                      Slot {nextSlotIndex + 1} din {nextAvailableSlots.length}
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm font-medium disabled:opacity-40"
+                        disabled={nextSlotIndex === 0}
+                        onClick={() => setNextSlotIndex((value) => Math.max(0, value - 1))}
+                        type="button"
+                      >
+                        Prev
+                      </button>
+                      <button
+                        className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm font-medium disabled:opacity-40"
+                        disabled={nextSlotIndex >= nextAvailableSlots.length - 1}
+                        onClick={() =>
+                          setNextSlotIndex((value) =>
+                            Math.min(nextAvailableSlots.length - 1, value + 1)
+                          )
+                        }
+                        type="button"
+                      >
+                        Next
+                      </button>
+                    </div>
                     <button
                       className="mt-3 rounded-[8px] border border-line bg-panel px-3 py-2 text-sm font-medium"
                       onClick={jumpToNextAvailableSlot}
@@ -3209,6 +3255,15 @@ export default function Home() {
                     >
                       Programeaza pe acest slot
                     </button>
+                    {nextAvailableSlots.length > 1 ? (
+                      <div className="mt-3 space-y-1 text-xs text-muted">
+                        {nextAvailableSlots.slice(0, 5).map((slot, index) => (
+                          <p key={`${slot.date}-${slot.start}`}>
+                            {index + 1}. {formatShortDate(slot.date)} • {minutesToTime(slot.start)}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <p className="mt-1 text-sm text-muted">
