@@ -115,6 +115,7 @@ const shortDayMonth = (dateString: string) => {
   const month = new Intl.DateTimeFormat("ro-RO", { month: "short" }).format(date);
   return { day, month };
 };
+const HIDDEN_RUNNING_TOTAL_START = "2026-05-04";
 
 const formatLogDateTime = (value: string) =>
   new Intl.DateTimeFormat("ro-RO", {
@@ -1179,6 +1180,9 @@ export default function Home() {
     const totalRevenue = nonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
     const uniqueClients = new Set(nonCancelled.map((appointment) => appointment.clientId)).size;
     const avgTicket = nonCancelled.length > 0 ? Math.round(totalRevenue / nonCancelled.length) : 0;
+    const hiddenRunningRevenue = allNonCancelled
+      .filter((appointment) => appointment.date >= HIDDEN_RUNNING_TOTAL_START)
+      .reduce((sum, appointment) => sum + appointment.price, 0);
 
     const statusMap = new Map<string, number>();
     for (const appointment of monthAppointments) {
@@ -1329,6 +1333,7 @@ export default function Home() {
       allRevenue,
       allUniqueClients,
       allAvgTicket,
+      hiddenRunningRevenue,
       yearAppointments,
       yearNonCancelled,
       yearRevenue,
@@ -4136,7 +4141,7 @@ export default function Home() {
           <section className="mt-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Rapoarte</h2>
-              <span className="text-sm text-muted">Total • An • Luna</span>
+              <span className="text-sm text-muted">Lunar</span>
             </div>
 
             <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
@@ -4183,61 +4188,20 @@ export default function Home() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Venit total (toate)</p>
-                <p className="mt-1 text-xl font-semibold text-gold">{formatPrice(reportData.allRevenue)}</p>
-              </div>
-              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Programari totale</p>
-                <p className="mt-1 text-xl font-semibold">{reportData.allAppointments.length}</p>
-              </div>
-              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Cliente totale</p>
-                <p className="mt-1 text-xl font-semibold">{reportData.allUniqueClients}</p>
-              </div>
-              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Bon mediu total</p>
-                <p className="mt-1 text-xl font-semibold">{formatPrice(reportData.allAvgTicket)}</p>
-              </div>
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Programari azi</p>
-                <p className="mt-1 text-xl font-semibold">{reportData.todayAppointments.length}</p>
-              </div>
-              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Venit azi</p>
-                <p className="mt-1 text-xl font-semibold text-gold">{formatPrice(reportData.todayRevenue)}</p>
-              </div>
-              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">De confirmat azi</p>
-                <p className="mt-1 text-xl font-semibold">{reportData.todayPendingConfirmations}</p>
+                <p className="text-xs text-muted">Venit luna</p>
+                <p className="mt-1 text-xl font-semibold text-gold">{formatPrice(reportData.totalRevenue)}</p>
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
                 <p className="text-xs text-muted">Programari luna</p>
                 <p className="mt-1 text-xl font-semibold">{reportData.monthAppointments.length}</p>
               </div>
-            </div>
-
-            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Rezumat an {reportYear}</p>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
-                  <p className="text-xs text-muted">Venit an</p>
-                  <p className="mt-1 font-semibold text-gold">{formatPrice(reportData.yearRevenue)}</p>
-                </div>
-                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
-                  <p className="text-xs text-muted">Programari an</p>
-                  <p className="mt-1 font-semibold">{reportData.yearAppointments.length}</p>
-                </div>
-                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
-                  <p className="text-xs text-muted">Cliente active an</p>
-                  <p className="mt-1 font-semibold">{reportData.yearUniqueClients}</p>
-                </div>
-                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
-                  <p className="text-xs text-muted">Bon mediu an</p>
-                  <p className="mt-1 font-semibold">{formatPrice(reportData.yearAvgTicket)}</p>
-                </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">Cliente active luna</p>
+                <p className="mt-1 text-xl font-semibold">{reportData.uniqueClients}</p>
+              </div>
+              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                <p className="text-xs text-muted">Bon mediu luna</p>
+                <p className="mt-1 text-xl font-semibold">{formatPrice(reportData.avgTicket)}</p>
               </div>
             </div>
 
@@ -4251,28 +4215,6 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-            </div>
-
-            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Top cliente (all-time)</p>
-              {reportData.topClientsAllTime.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  {reportData.topClientsAllTime.map((client) => (
-                    <div key={`${client.name}-${client.count}-${client.lastDate}`} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium">{client.name}</p>
-                        <p className="text-sm text-muted">{client.count} vizite</p>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between text-xs text-muted">
-                        <span>Valoare: {formatPrice(client.revenue)}</span>
-                        <span>Ultima: {formatShortDate(client.lastDate)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-3 text-sm text-muted">Nu exista cliente active.</p>
-              )}
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
@@ -4302,10 +4244,10 @@ export default function Home() {
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Top cliente (an {reportYear})</p>
-              {reportData.topClientsYear.length > 0 ? (
+              <p className="text-sm font-semibold">Top cliente (luna)</p>
+              {reportData.topClients.length > 0 ? (
                 <div className="mt-3 space-y-2">
-                  {reportData.topClientsYear.map((client) => (
+                  {reportData.topClients.map((client) => (
                     <div key={`${client.name}-${client.count}`} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium">{client.name}</p>
@@ -4316,42 +4258,8 @@ export default function Home() {
                   ))}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-muted">Nu exista cliente active in anul selectat.</p>
+                <p className="mt-3 text-sm text-muted">Nu exista cliente active in luna selectata.</p>
               )}
-            </div>
-
-            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Venit pe luni ({reportYear})</p>
-              <div className="mt-3 space-y-2">
-                {reportData.monthlyInYear.map((month) => {
-                  const max = Math.max(1, ...reportData.monthlyInYear.map((item) => item.revenue));
-                  const width = month.revenue === 0 ? 6 : Math.max(8, Math.round((month.revenue / max) * 100));
-                  return (
-                    <div key={month.key} className="grid grid-cols-[46px_1fr_72px] items-center gap-2">
-                      <p className="text-xs text-muted uppercase">{month.label}</p>
-                      <div className="h-2 rounded-[4px] bg-[#232323]">
-                        <div className="h-2 rounded-[4px] bg-gold" style={{ width: `${width}%` }} />
-                      </div>
-                      <p className="text-right text-xs text-muted">{formatPrice(month.revenue)}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Rezumat pe ani</p>
-              <div className="mt-3 space-y-2">
-                {reportData.byYear.map((row) => (
-                  <div key={row.year} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium">{row.year}</p>
-                      <p className="text-sm text-gold">{formatPrice(row.revenue)}</p>
-                    </div>
-                    <p className="mt-1 text-xs text-muted">{row.count} programari • {row.clients} cliente</p>
-                  </div>
-                ))}
-              </div>
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
