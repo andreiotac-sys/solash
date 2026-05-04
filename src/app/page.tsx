@@ -842,7 +842,7 @@ export default function Home() {
   }, [appointmentDate]);
 
   const selectedClient = useMemo(
-    () => clients.find((client) => client.id === selectedClientId) ?? clients[0],
+    () => clients.find((client) => client.id === selectedClientId) ?? null,
     [clients, selectedClientId]
   );
 
@@ -1501,6 +1501,18 @@ export default function Home() {
         client.phone.toLowerCase().includes(term)
     );
   }, [appointmentClientFilter, clients]);
+
+  useEffect(() => {
+    if (filteredClientsForAppointment.length === 0) {
+      return;
+    }
+    const stillVisible = filteredClientsForAppointment.some(
+      (client) => client.id === selectedClientId
+    );
+    if (!stillVisible) {
+      setSelectedClientId(filteredClientsForAppointment[0].id);
+    }
+  }, [filteredClientsForAppointment, selectedClientId]);
 
   const calendarSelected = useMemo(
     () => new Date(`${appointmentDate}T12:00:00`),
