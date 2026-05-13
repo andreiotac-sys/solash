@@ -3856,7 +3856,7 @@ export default function Home() {
               </button>
             </div>
 
-            {movingAppointment ? (
+            {movingAppointmentId && movingAppointment ? (
               <div className="mb-3 rounded-[8px] border border-gold bg-[#211b0d] px-3 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
