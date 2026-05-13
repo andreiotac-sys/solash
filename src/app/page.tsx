@@ -29,6 +29,7 @@ import type {
 const STORAGE_KEY = "solash-demo-store";
 const OFFLINE_QUEUE_KEY = "solash-offline-queue";
 const BUSINESS_SETTINGS_KEY = "solash-business-settings";
+const BUSINESS_BREAKS_DISABLED_KEY = "solash-business-breaks-disabled-v1";
 const APPOINTMENT_SELECT_WITH_NOTES =
   "id, client_id, service, appointment_date, start_time, duration, price, status, notes, clients(name, phone)";
 const APPOINTMENT_SELECT_WITHOUT_NOTES =
@@ -326,7 +327,7 @@ const defaultSchedule = () =>
   WEEK_DAYS.reduce<Record<number, DayBusinessSettings>>((acc, day) => {
     acc[day.key] = {
       enabled: day.key !== 6,
-      hasBreak: true,
+      hasBreak: false,
       start: DEFAULT_DAY_START,
       end: DEFAULT_DAY_END,
       breakStart: DEFAULT_BREAK_START,
@@ -385,6 +386,32 @@ const normalizeBusinessSettings = (input?: Partial<BusinessSettings> | null): Bu
   return { schedule, daysOff };
 };
 
+const disableAllBreaks = (settings: BusinessSettings): BusinessSettings => ({
+  ...settings,
+  schedule: WEEK_DAYS.reduce<Record<number, DayBusinessSettings>>((acc, day) => {
+    acc[day.key] = {
+      ...settings.schedule[day.key],
+      hasBreak: false,
+    };
+    return acc;
+  }, {}),
+});
+
+const applyBusinessSettingsMigrations = (settings: BusinessSettings): BusinessSettings => {
+  if (typeof window === "undefined") {
+    return settings;
+  }
+
+  if (window.localStorage.getItem(BUSINESS_BREAKS_DISABLED_KEY)) {
+    return settings;
+  }
+
+  const migrated = disableAllBreaks(settings);
+  window.localStorage.setItem(BUSINESS_BREAKS_DISABLED_KEY, "true");
+  window.localStorage.setItem(BUSINESS_SETTINGS_KEY, JSON.stringify(migrated));
+  return migrated;
+};
+
 const readBusinessSettings = (): BusinessSettings => {
   if (typeof window === "undefined") {
     return defaultBusinessSettings();
@@ -392,14 +419,14 @@ const readBusinessSettings = (): BusinessSettings => {
 
   const raw = window.localStorage.getItem(BUSINESS_SETTINGS_KEY);
   if (!raw) {
-    return defaultBusinessSettings();
+    return applyBusinessSettingsMigrations(defaultBusinessSettings());
   }
 
   try {
     const parsed = JSON.parse(raw) as Partial<BusinessSettings>;
-    return normalizeBusinessSettings(parsed);
+    return applyBusinessSettingsMigrations(normalizeBusinessSettings(parsed));
   } catch {
-    return defaultBusinessSettings();
+    return applyBusinessSettingsMigrations(defaultBusinessSettings());
   }
 };
 
@@ -1179,11 +1206,16 @@ export default function Home() {
       { length: Math.floor((rangeEnd - rangeStart) / 60) + 1 },
       (_, index) => rangeStart + index * 60
     );
+    const quarterMarks = Array.from(
+      { length: Math.floor((rangeEnd - rangeStart) / CALENDAR_SNAP_MINUTES) },
+      (_, index) => rangeStart + (index + 1) * CALENDAR_SNAP_MINUTES
+    ).filter((minute) => minute < rangeEnd && minute % 60 !== 0);
     return {
       appointments: activeAppointments,
       rangeStart,
       rangeEnd,
       hourMarks,
+      quarterMarks,
       height: ((rangeEnd - rangeStart) / 60) * CALENDAR_HOUR_HEIGHT,
     };
   }, [appointmentsForDayAll, workWindowsForSelectedDate]);
@@ -2765,19 +2797,21 @@ export default function Home() {
     }
 
     const updated = { ...appointment, date: nextDate, start: nextStart };
+    const previousAppointments = appointments;
+    const nextAppointments = sortAppointmentsByDateTime(
+      previousAppointments.map((item) => (item.id === appointment.id ? updated : item))
+    );
+
+    setAppointments(nextAppointments);
+    setMovingAppointmentId(null);
+    setDraggingAppointmentId(null);
+    setDragTargetKey("");
 
     if (!isSupabaseConfigured || !supabase || !session || !isOnline || appointment.id < 0) {
-      const next = sortAppointmentsByDateTime(
-        appointments.map((item) => (item.id === appointment.id ? updated : item))
-      );
-      setAppointments(next);
-      persistLocalState({ appointments: next });
+      persistLocalState({ appointments: nextAppointments });
       if (isSupabaseConfigured) {
         enqueueOfflineOp({ type: "upsert_appointment", record: updated });
       }
-      setMovingAppointmentId(null);
-      setDraggingAppointmentId(null);
-      setDragTargetKey("");
       setToast({
         text:
           !isOnline && isSupabaseConfigured
@@ -2794,18 +2828,15 @@ export default function Home() {
       .eq("id", appointment.id);
 
     if (error) {
+      setAppointments((current) =>
+        sortAppointmentsByDateTime(
+          current.map((item) => (item.id === appointment.id ? appointment : item))
+        )
+      );
       setToast({ text: "Nu am putut muta programarea.", type: "error" });
       return;
     }
 
-    setAppointments((current) =>
-      sortAppointmentsByDateTime(
-        current.map((item) => (item.id === appointment.id ? updated : item))
-      )
-    );
-    setMovingAppointmentId(null);
-    setDraggingAppointmentId(null);
-    setDragTargetKey("");
     setToast({ text: `Programare mutata la ${nextStart}.`, type: "success" });
   };
 
@@ -3904,6 +3935,28 @@ export default function Home() {
                   ref={calendarTimelineRef}
                   style={{ height: `${calendarTimeline.height}px` }}
                 >
+                  {calendarTimeline.quarterMarks.map((minute) => {
+                    const top =
+                      ((minute - calendarTimeline.rangeStart) / 60) * CALENDAR_HOUR_HEIGHT;
+                    const label = `${minute % 60}`.padStart(2, "0");
+                    const isHalfHour = minute % 60 === 30;
+                    return (
+                      <div
+                        key={`quarter-${minute}`}
+                        className={`absolute left-[62px] right-0 ${
+                          isHalfHour
+                            ? "border-t border-[#34363a]/80"
+                            : "border-t border-dashed border-[#2f3135]/70"
+                        }`}
+                        style={{ top }}
+                      >
+                        <span className="absolute -top-2 left-1 bg-[#202124] px-1 text-[10px] leading-none text-[#777b82]">
+                          :{label}
+                        </span>
+                      </div>
+                    );
+                  })}
+
                   {calendarTimeline.hourMarks.map((minute) => {
                     const top =
                       ((minute - calendarTimeline.rangeStart) / 60) * CALENDAR_HOUR_HEIGHT;
@@ -4852,34 +4905,64 @@ export default function Home() {
               ) : null}
             </div>
 
-            <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Program business</p>
-              <p className="mt-2 text-sm text-[#ddd4c5]">
-                Setezi programul pe fiecare zi, pauza, plus zile libere individuale.
-              </p>
-              <div className="mt-3 grid gap-3">
+            <div className="gold-ring mb-4 rounded-[8px] border border-line bg-[#181511] px-4 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Program business</p>
+                  <p className="mt-2 text-sm text-[#ddd4c5]">
+                    Pauzele sunt oprite implicit. Bifeaza pauza doar in zilele in care vrei sa blocheze calendarul.
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-[8px] border border-[#3f3522] bg-black px-2 py-1 text-[11px] font-semibold text-gold">
+                  15 min
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3">
                 {WEEK_DAYS.map((day) => {
                   const settings = businessSettings.schedule[day.key];
+                  const isDisabled = !settings.enabled;
                   return (
                     <div
                       key={day.key}
-                      className="rounded-[8px] border border-line bg-black/70 px-3 py-3"
+                      className={`rounded-[8px] border px-3 py-3 ${
+                        isDisabled
+                          ? "border-[#292929] bg-[#111]"
+                          : "border-[#3f3522] bg-[#201c17]"
+                      }`}
                     >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold">{day.label}</p>
-                        <div className="flex items-center gap-3">
-                          <label className="flex items-center gap-1 text-xs text-muted">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold">{day.label}</p>
+                          <p className="mt-1 text-xs text-muted">
+                            {settings.enabled
+                              ? `${settings.start} - ${settings.end}`
+                              : "Zi inchisa"}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <label className={`flex items-center gap-2 rounded-[8px] border px-2 py-1.5 text-xs font-semibold ${
+                            settings.enabled
+                              ? "border-gold bg-gold text-black"
+                              : "border-line bg-black text-muted"
+                          }`}>
                             <input
+                              className="accent-[#e0bf68]"
                               checked={settings.enabled}
                               onChange={(event) =>
                                 updateBusinessDay(day.key, { enabled: event.target.checked })
                               }
                               type="checkbox"
                             />
-                            activ
+                            Activ
                           </label>
-                          <label className="flex items-center gap-1 text-xs text-muted">
+                          <label className={`flex items-center gap-2 rounded-[8px] border px-2 py-1.5 text-xs font-semibold ${
+                            settings.hasBreak && settings.enabled
+                              ? "border-[#8f6b2f] bg-[#2a2113] text-gold"
+                              : "border-line bg-black text-muted"
+                          }`}>
                             <input
+                              className="accent-[#e0bf68]"
                               checked={settings.hasBreak}
                               disabled={!settings.enabled}
                               onChange={(event) =>
@@ -4887,15 +4970,16 @@ export default function Home() {
                               }
                               type="checkbox"
                             />
-                            pauza
+                            Pauza
                           </label>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+
+                      <div className="mt-3 grid grid-cols-2 gap-2">
                         <label className="grid gap-1 text-xs text-muted">
                           <span>Start</span>
                           <input
-                            className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
+                            className="min-w-0 rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
                             disabled={!settings.enabled}
                             onChange={(event) =>
                               updateBusinessDay(day.key, { start: event.target.value })
@@ -4907,7 +4991,7 @@ export default function Home() {
                         <label className="grid gap-1 text-xs text-muted">
                           <span>Final</span>
                           <input
-                            className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
+                            className="min-w-0 rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
                             disabled={!settings.enabled}
                             onChange={(event) =>
                               updateBusinessDay(day.key, { end: event.target.value })
@@ -4916,36 +5000,44 @@ export default function Home() {
                             value={settings.end}
                           />
                         </label>
-                        <label className="grid gap-1 text-xs text-muted">
-                          <span>Pauza start</span>
-                          <input
-                            className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
-                            disabled={!settings.enabled || !settings.hasBreak}
-                            onChange={(event) =>
-                              updateBusinessDay(day.key, { breakStart: event.target.value })
-                            }
-                            type="time"
-                            value={settings.breakStart}
-                          />
-                        </label>
-                        <label className="grid gap-1 text-xs text-muted">
-                          <span>Pauza final</span>
-                          <input
-                            className="rounded-[8px] border border-line bg-panel px-2 py-2 text-sm outline-none disabled:opacity-50"
-                            disabled={!settings.enabled || !settings.hasBreak}
-                            onChange={(event) =>
-                              updateBusinessDay(day.key, { breakEnd: event.target.value })
-                            }
-                            type="time"
-                            value={settings.breakEnd}
-                          />
-                        </label>
+                        {settings.hasBreak ? (
+                          <>
+                            <label className="grid gap-1 text-xs text-muted">
+                              <span>Pauza start</span>
+                              <input
+                                className="min-w-0 rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
+                                disabled={!settings.enabled}
+                                onChange={(event) =>
+                                  updateBusinessDay(day.key, { breakStart: event.target.value })
+                                }
+                                type="time"
+                                value={settings.breakStart}
+                              />
+                            </label>
+                            <label className="grid gap-1 text-xs text-muted">
+                              <span>Pauza final</span>
+                              <input
+                                className="min-w-0 rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
+                                disabled={!settings.enabled}
+                                onChange={(event) =>
+                                  updateBusinessDay(day.key, { breakEnd: event.target.value })
+                                }
+                                type="time"
+                                value={settings.breakEnd}
+                              />
+                            </label>
+                          </>
+                        ) : (
+                          <p className="col-span-2 rounded-[8px] border border-dashed border-[#34302a] bg-black/40 px-3 py-2 text-xs text-[#a89f91]">
+                            Fara pauza. Mutarea programarilor foloseste tot intervalul zilei.
+                          </p>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
-              <div className="mt-4 grid gap-2">
+              <div className="mt-4 grid gap-2 rounded-[8px] border border-[#3f3522] bg-black/50 p-3">
                 <label className="grid gap-2 text-sm">
                   <span className="text-muted">Zile libere (YYYY-MM-DD, separate prin virgula)</span>
                   <input
