@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent, MouseEvent } from "react";
+import type { DragEvent, MouseEvent, PointerEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { DayPicker } from "react-day-picker";
 import * as XLSX from "xlsx";
@@ -79,6 +79,13 @@ type SupabaseAppointmentRowWithoutNotes = Omit<SupabaseAppointmentRow, "notes">;
 type SaveWarning = {
   title: string;
   details: string[];
+};
+type CalendarPointerDrag = {
+  appointmentId: number;
+  pointerId: number;
+  originY: number;
+  currentY: number;
+  active: boolean;
 };
 type DayBusinessSettings = {
   enabled: boolean;
@@ -541,6 +548,7 @@ export default function Home() {
   const [movingAppointmentId, setMovingAppointmentId] = useState<number | null>(null);
   const [draggingAppointmentId, setDraggingAppointmentId] = useState<number | null>(null);
   const [dragTargetKey, setDragTargetKey] = useState("");
+  const [calendarPointerDrag, setCalendarPointerDrag] = useState<CalendarPointerDrag | null>(null);
   const [serviceName, setServiceName] = useState("");
   const [serviceDuration, setServiceDuration] = useState("");
   const [servicePrice, setServicePrice] = useState(0);
@@ -2869,6 +2877,100 @@ export default function Home() {
     return minutesToTime(Math.min(maxStart, Math.max(minStart, snapped)));
   };
 
+  const startCalendarPointerDrag = (
+    event: PointerEvent<HTMLDivElement>,
+    appointment: Appointment
+  ) => {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      target.closest("button,a,input,textarea,select")
+    ) {
+      return;
+    }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Some mobile browsers can reject capture if the pointer ended quickly.
+    }
+    setCalendarPointerDrag({
+      appointmentId: appointment.id,
+      pointerId: event.pointerId,
+      originY: event.clientY,
+      currentY: event.clientY,
+      active: false,
+    });
+    setDraggingAppointmentId(appointment.id);
+    setMovingAppointmentId(null);
+  };
+
+  const updateCalendarPointerDrag = (
+    event: PointerEvent<HTMLDivElement>,
+    appointment: Appointment
+  ) => {
+    if (
+      !calendarPointerDrag ||
+      calendarPointerDrag.pointerId !== event.pointerId ||
+      calendarPointerDrag.appointmentId !== appointment.id
+    ) {
+      return;
+    }
+    const active =
+      calendarPointerDrag.active ||
+      Math.abs(event.clientY - calendarPointerDrag.originY) > 6;
+    if (active) {
+      event.preventDefault();
+    }
+    setCalendarPointerDrag((current) =>
+      current &&
+      current.pointerId === event.pointerId &&
+      current.appointmentId === appointment.id
+        ? { ...current, currentY: event.clientY, active }
+        : current
+    );
+  };
+
+  const finishCalendarPointerDrag = async (
+    event: PointerEvent<HTMLDivElement>,
+    appointment: Appointment
+  ) => {
+    if (
+      !calendarPointerDrag ||
+      calendarPointerDrag.pointerId !== event.pointerId ||
+      calendarPointerDrag.appointmentId !== appointment.id
+    ) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const wasActive =
+      calendarPointerDrag.active ||
+      Math.abs(event.clientY - calendarPointerDrag.originY) > 6;
+    setCalendarPointerDrag(null);
+    setDraggingAppointmentId(null);
+    setDragTargetKey("");
+    if (!wasActive) {
+      return;
+    }
+    await handleMoveAppointment(
+      appointment,
+      appointmentDate,
+      getTimelineStartFromClientY(event.clientY, appointment)
+    );
+  };
+
+  const cancelCalendarPointerDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (calendarPointerDrag?.pointerId === event.pointerId) {
+      setCalendarPointerDrag(null);
+      setDraggingAppointmentId(null);
+      setDragTargetKey("");
+    }
+  };
+
   const handleCalendarTimelineDrop = async (event: DragEvent<HTMLDivElement>) => {
     const appointment = movingAppointment;
     if (!appointment) {
@@ -3828,25 +3930,38 @@ export default function Home() {
                     const serviceColors = serviceColorClasses(appointment.service);
                     const start = timeToMinutes(appointment.start);
                     const end = start + parseDurationToMinutes(appointment.duration);
+                    const previewStart =
+                      calendarPointerDrag?.appointmentId === appointment.id &&
+                      calendarPointerDrag.active
+                        ? timeToMinutes(
+                            getTimelineStartFromClientY(
+                              calendarPointerDrag.currentY,
+                              appointment
+                            )
+                          )
+                        : start;
                     const top =
-                      ((start - calendarTimeline.rangeStart) / 60) * CALENDAR_HOUR_HEIGHT;
+                      ((previewStart - calendarTimeline.rangeStart) / 60) * CALENDAR_HOUR_HEIGHT;
                     const height = Math.max(
                       38,
                       ((end - start) / 60) * CALENDAR_HOUR_HEIGHT - 4
                     );
                     const isMoving =
                       movingAppointmentId === appointment.id ||
-                      draggingAppointmentId === appointment.id;
+                      draggingAppointmentId === appointment.id ||
+                      calendarPointerDrag?.appointmentId === appointment.id;
                     return (
                       <div
                         key={`calendar-block-${appointment.id}`}
-                        className={`absolute left-[76px] right-3 overflow-hidden rounded-[8px] border px-3 py-2 shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
-                          isMoving ? "ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
+                        className={`absolute left-[76px] right-3 touch-none select-none overflow-hidden rounded-[8px] border px-3 py-2 shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
+                          isMoving ? "z-20 ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
                         }`}
-                        draggable
+                        draggable={false}
                         onClick={(event) => event.stopPropagation()}
-                        onDragEnd={stopDraggingAppointment}
-                        onDragStart={(event) => startDraggingAppointment(event, appointment)}
+                        onPointerCancel={cancelCalendarPointerDrag}
+                        onPointerDown={(event) => startCalendarPointerDrag(event, appointment)}
+                        onPointerMove={(event) => updateCalendarPointerDrag(event, appointment)}
+                        onPointerUp={(event) => void finishCalendarPointerDrag(event, appointment)}
                         style={{ top: `${top}px`, height: `${height}px` }}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -3859,7 +3974,7 @@ export default function Home() {
                             </p>
                           </div>
                           <p className={`shrink-0 text-xs ${serviceColors.meta}`}>
-                            {appointment.start}
+                            {minutesToTime(previewStart)}
                           </p>
                         </div>
                         <div className="mt-2 flex gap-2">
