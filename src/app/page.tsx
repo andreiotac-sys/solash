@@ -29,7 +29,7 @@ import type {
 const STORAGE_KEY = "solash-demo-store";
 const OFFLINE_QUEUE_KEY = "solash-offline-queue";
 const BUSINESS_SETTINGS_KEY = "solash-business-settings";
-const BUSINESS_BREAKS_DISABLED_KEY = "solash-business-breaks-disabled-v1";
+const BUSINESS_BREAKS_DISABLED_KEY = "solash-business-breaks-disabled-v2";
 const APPOINTMENT_SELECT_WITH_NOTES =
   "id, client_id, service, appointment_date, start_time, duration, price, status, notes, clients(name, phone)";
 const APPOINTMENT_SELECT_WITHOUT_NOTES =
@@ -86,6 +86,7 @@ type CalendarPointerDrag = {
   pointerId: number;
   originY: number;
   currentY: number;
+  grabOffsetY: number;
   active: boolean;
 };
 type DayBusinessSettings = {
@@ -197,6 +198,8 @@ const minutesToTime = (total: number) => {
 
 const CALENDAR_HOUR_HEIGHT = 72;
 const CALENDAR_SNAP_MINUTES = 15;
+const QUICK_APPOINTMENT_TIMES = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"];
+const QUICK_DURATIONS = ["30min", "1h", "1h30min", "2h", "2h30min"];
 
 const sortAppointmentsByDateTime = (items: Appointment[]) =>
   [...items].sort((a, b) => {
@@ -891,6 +894,11 @@ export default function Home() {
   const selectedClient = useMemo(
     () => clients.find((client) => client.id === selectedClientId) ?? null,
     [clients, selectedClientId]
+  );
+
+  const selectedServiceForForm = useMemo(
+    () => services.find((service) => service.id === selectedServiceId) ?? null,
+    [selectedServiceId, services]
   );
 
   const movingAppointment = useMemo(
@@ -2890,7 +2898,8 @@ export default function Home() {
 
   const getTimelineStartFromClientY = (
     clientY: number,
-    appointment: Appointment
+    appointment: Appointment,
+    grabOffsetY = 0
   ) => {
     const element = calendarTimelineRef.current;
     if (!element) {
@@ -2899,7 +2908,7 @@ export default function Home() {
     const rect = element.getBoundingClientRect();
     const rawMinutes =
       calendarTimeline.rangeStart +
-      ((clientY - rect.top + element.scrollTop) / CALENDAR_HOUR_HEIGHT) * 60;
+      ((clientY - grabOffsetY - rect.top + element.scrollTop) / CALENDAR_HOUR_HEIGHT) * 60;
     const snapped =
       Math.round(rawMinutes / CALENDAR_SNAP_MINUTES) * CALENDAR_SNAP_MINUTES;
     const duration = parseDurationToMinutes(appointment.duration);
@@ -2927,11 +2936,13 @@ export default function Home() {
     } catch {
       // Some mobile browsers can reject capture if the pointer ended quickly.
     }
+    const appointmentRect = event.currentTarget.getBoundingClientRect();
     setCalendarPointerDrag({
       appointmentId: appointment.id,
       pointerId: event.pointerId,
       originY: event.clientY,
       currentY: event.clientY,
+      grabOffsetY: event.clientY - appointmentRect.top,
       active: false,
     });
     setDraggingAppointmentId(appointment.id);
@@ -2990,7 +3001,7 @@ export default function Home() {
     await handleMoveAppointment(
       appointment,
       appointmentDate,
-      getTimelineStartFromClientY(event.clientY, appointment)
+      getTimelineStartFromClientY(event.clientY, appointment, calendarPointerDrag.grabOffsetY)
     );
   };
 
@@ -3938,7 +3949,6 @@ export default function Home() {
                   {calendarTimeline.quarterMarks.map((minute) => {
                     const top =
                       ((minute - calendarTimeline.rangeStart) / 60) * CALENDAR_HOUR_HEIGHT;
-                    const label = `${minute % 60}`.padStart(2, "0");
                     const isHalfHour = minute % 60 === 30;
                     return (
                       <div
@@ -3949,11 +3959,7 @@ export default function Home() {
                             : "border-t border-dashed border-[#2f3135]/70"
                         }`}
                         style={{ top }}
-                      >
-                        <span className="absolute -top-2 left-1 bg-[#202124] px-1 text-[10px] leading-none text-[#777b82]">
-                          :{label}
-                        </span>
-                      </div>
+                      />
                     );
                   })}
 
@@ -3989,7 +3995,8 @@ export default function Home() {
                         ? timeToMinutes(
                             getTimelineStartFromClientY(
                               calendarPointerDrag.currentY,
-                              appointment
+                              appointment,
+                              calendarPointerDrag.grabOffsetY
                             )
                           )
                         : start;
@@ -4109,20 +4116,29 @@ export default function Home() {
 
               {activePanel === "appointment" ? (
                 <div
-                  className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4"
+                  className="gold-ring rounded-[8px] border border-[#3f3522] bg-[#181511] px-4 py-4"
                   ref={appointmentFormCardRef}
                 >
-                  <div className="grid gap-3">
+                  <div className="grid gap-4">
+                    <div className="border-b border-[#342d22] pb-3">
+                      <p className="text-sm font-semibold">
+                        {editingAppointmentId ? "Actualizeaza detaliile" : "Completeaza programarea"}
+                      </p>
+                      <p className="mt-1 text-xs text-[#bdb3a5]">
+                        Alege clienta, serviciul si ora. Durata si pretul se completeaza automat din serviciu.
+                      </p>
+                    </div>
+
                     <label className="grid min-w-0 gap-2 text-sm">
                       <span className="text-muted">Clienta</span>
                       <input
-                        className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        className="w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
                         onChange={(event) => setAppointmentClientFilter(event.target.value)}
                         placeholder="Cauta dupa nume sau telefon"
                         value={appointmentClientFilter}
                       />
                       <select
-                        className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        className="w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
                         onChange={(event) => setSelectedClientId(Number(event.target.value))}
                         value={selectedClientId}
                       >
@@ -4139,10 +4155,20 @@ export default function Home() {
                       ) : null}
                     </label>
 
+                    <div className="rounded-[8px] border border-[#3f3522] bg-black/55 px-3 py-3 text-sm">
+                      <p className="text-xs uppercase text-muted">Clienta selectata</p>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-semibold">{selectedClient?.name ?? "Nicio clienta"}</p>
+                        <p className="rounded-[8px] bg-[#241d12] px-2 py-1 text-xs text-gold">
+                          {selectedClient?.phone || "fara telefon"}
+                        </p>
+                      </div>
+                    </div>
+
                     <label className="grid min-w-0 gap-2 text-sm">
                       <span className="text-muted">Serviciu</span>
                       <select
-                        className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        className="w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
                         onChange={(event) => handleServiceSelection(Number(event.target.value))}
                         value={selectedServiceId}
                       >
@@ -4152,13 +4178,18 @@ export default function Home() {
                           </option>
                         ))}
                       </select>
+                      <p className="text-xs text-[#bdb3a5]">
+                        {selectedServiceForForm
+                          ? `${selectedServiceForForm.duration} • ${formatPrice(selectedServiceForForm.price)}`
+                          : "Alege un serviciu activ"}
+                      </p>
                     </label>
 
-                    <div className="grid grid-cols-1 gap-3">
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
                       <label className="grid min-w-0 gap-2 text-sm">
                         <span className="text-muted">Data</span>
                         <input
-                          className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                          className="w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
                           onChange={(event) => setAppointmentDate(event.target.value)}
                           type="date"
                           value={appointmentDate}
@@ -4167,19 +4198,35 @@ export default function Home() {
                       <label className="grid min-w-0 gap-2 text-sm">
                         <span className="text-muted">Ora</span>
                         <input
-                          className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                          className="w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
                           onChange={(event) => setAppointmentTime(event.target.value)}
                           type="time"
                           value={appointmentTime}
                         />
                       </label>
                     </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {QUICK_APPOINTMENT_TIMES.map((time) => (
+                        <button
+                          className={`shrink-0 rounded-[8px] border px-3 py-2 text-xs font-semibold ${
+                            appointmentTime === time
+                              ? "border-gold bg-gold text-black"
+                              : "border-[#3f3522] bg-black/70 text-[#ddd4c5]"
+                          }`}
+                          key={time}
+                          onClick={() => setAppointmentTime(time)}
+                          type="button"
+                        >
+                          {time}
+                        </button>
+                      ))}
+                    </div>
 
-                    <div className="grid grid-cols-1 gap-3">
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
                       <label className="grid min-w-0 gap-2 text-sm">
                         <span className="text-muted">Durata</span>
                         <input
-                          className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                          className="w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
                           onChange={(event) => setAppointmentDuration(event.target.value)}
                           value={appointmentDuration}
                         />
@@ -4187,7 +4234,7 @@ export default function Home() {
                       <label className="grid min-w-0 gap-2 text-sm">
                         <span className="text-muted">Pret</span>
                         <input
-                          className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                          className="w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
                           min="0"
                           onChange={(event) =>
                             setAppointmentPrice(Number(event.target.value) || 0)
@@ -4197,11 +4244,27 @@ export default function Home() {
                         />
                       </label>
                     </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {QUICK_DURATIONS.map((duration) => (
+                        <button
+                          className={`shrink-0 rounded-[8px] border px-3 py-2 text-xs font-semibold ${
+                            appointmentDuration === duration
+                              ? "border-gold bg-gold text-black"
+                              : "border-[#3f3522] bg-black/70 text-[#ddd4c5]"
+                          }`}
+                          key={duration}
+                          onClick={() => setAppointmentDuration(duration)}
+                          type="button"
+                        >
+                          {duration}
+                        </button>
+                      ))}
+                    </div>
 
                     <label className="grid min-w-0 gap-2 text-sm">
                       <span className="text-muted">Status</span>
                       <select
-                        className="w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        className="w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
                         onChange={(event) => setAppointmentStatus(event.target.value)}
                         value={appointmentStatus}
                       >
@@ -4216,18 +4279,12 @@ export default function Home() {
                     <label className="grid min-w-0 gap-2 text-sm">
                       <span className="text-muted">Observatii programare</span>
                       <textarea
-                        className="min-h-[88px] w-full max-w-full rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
+                        className="min-h-[88px] w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
                         onChange={(event) => setAppointmentNotes(event.target.value)}
                         placeholder="Detalii, preferinte, reminder..."
                         value={appointmentNotes}
                       />
                     </label>
-
-                    <div className="rounded-[8px] border border-line bg-black px-4 py-3 text-sm">
-                      <p className="text-muted">Clienta selectata</p>
-                      <p className="mt-2 font-medium">{selectedClient?.name ?? "-"}</p>
-                      <p className="mt-1 text-[#ddd4c5]">{selectedClient?.phone ?? "-"}</p>
-                    </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <button
@@ -4975,11 +5032,11 @@ export default function Home() {
                         </div>
                       </div>
 
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <label className="grid gap-1 text-xs text-muted">
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <label className="grid min-w-0 gap-1 text-xs text-muted">
                           <span>Start</span>
                           <input
-                            className="min-w-0 rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
+                            className="min-w-0 w-full max-w-full rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
                             disabled={!settings.enabled}
                             onChange={(event) =>
                               updateBusinessDay(day.key, { start: event.target.value })
@@ -4988,10 +5045,10 @@ export default function Home() {
                             value={settings.start}
                           />
                         </label>
-                        <label className="grid gap-1 text-xs text-muted">
+                        <label className="grid min-w-0 gap-1 text-xs text-muted">
                           <span>Final</span>
                           <input
-                            className="min-w-0 rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
+                            className="min-w-0 w-full max-w-full rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
                             disabled={!settings.enabled}
                             onChange={(event) =>
                               updateBusinessDay(day.key, { end: event.target.value })
@@ -5002,10 +5059,10 @@ export default function Home() {
                         </label>
                         {settings.hasBreak ? (
                           <>
-                            <label className="grid gap-1 text-xs text-muted">
+                            <label className="grid min-w-0 gap-1 text-xs text-muted">
                               <span>Pauza start</span>
                               <input
-                                className="min-w-0 rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
+                                className="min-w-0 w-full max-w-full rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
                                 disabled={!settings.enabled}
                                 onChange={(event) =>
                                   updateBusinessDay(day.key, { breakStart: event.target.value })
@@ -5014,10 +5071,10 @@ export default function Home() {
                                 value={settings.breakStart}
                               />
                             </label>
-                            <label className="grid gap-1 text-xs text-muted">
+                            <label className="grid min-w-0 gap-1 text-xs text-muted">
                               <span>Pauza final</span>
                               <input
-                                className="min-w-0 rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
+                                className="min-w-0 w-full max-w-full rounded-[8px] border border-line bg-black px-2 py-2 text-sm text-white outline-none disabled:opacity-40"
                                 disabled={!settings.enabled}
                                 onChange={(event) =>
                                   updateBusinessDay(day.key, { breakEnd: event.target.value })
