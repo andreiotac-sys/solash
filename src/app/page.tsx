@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent } from "react";
+import type { DragEvent, MouseEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { DayPicker } from "react-day-picker";
 import * as XLSX from "xlsx";
@@ -161,9 +161,6 @@ const daysToHuman = (days: number) => {
   return `${days} zile`;
 };
 
-const reservationCountLabel = (count: number) =>
-  `${count} rez.`;
-
 const parseDurationToMinutes = (value: string) => {
   const normalized = value.trim().toLowerCase();
   const hourMatch = normalized.match(/(\d+)\s*h/);
@@ -189,6 +186,9 @@ const minutesToTime = (total: number) => {
   const minutes = total % 60;
   return `${`${hours}`.padStart(2, "0")}:${`${minutes}`.padStart(2, "0")}`;
 };
+
+const CALENDAR_HOUR_HEIGHT = 72;
+const CALENDAR_SNAP_MINUTES = 15;
 
 const sortAppointmentsByDateTime = (items: Appointment[]) =>
   [...items].sort((a, b) => {
@@ -496,6 +496,7 @@ const isoFromDate = (date: Date) => {
 export default function Home() {
   const appointmentEditorRef = useRef<HTMLElement | null>(null);
   const appointmentFormCardRef = useRef<HTMLDivElement | null>(null);
+  const calendarTimelineRef = useRef<HTMLDivElement | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [activePanel, setActivePanel] = useState<PanelKey>("appointment");
@@ -551,7 +552,6 @@ export default function Home() {
   const [statusFilter, setStatusFilter] = useState<string>("toate");
   const [selectedMonth, setSelectedMonth] = useState(() => todayIso().slice(0, 7));
   const [reportMonth, setReportMonth] = useState(() => todayIso().slice(0, 7));
-  const [showMonthDayView, setShowMonthDayView] = useState(false);
   const [scrollToEditorTick, setScrollToEditorTick] = useState(0);
   const [pushSupported, setPushSupported] = useState(false);
   const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(
@@ -1142,16 +1142,43 @@ export default function Home() {
     });
   }, [appointmentDate, calendarDayStats, selectedMonth]);
 
-  const monthQuickPicks = useMemo(
-    () => [
-      monthShift(selectedMonth, -2),
-      monthShift(selectedMonth, -1),
-      selectedMonth,
-      monthShift(selectedMonth, 1),
-      monthShift(selectedMonth, 2),
-    ],
-    [selectedMonth]
-  );
+  const calendarTimeline = useMemo(() => {
+    const activeAppointments = appointmentsForDayAll.filter(
+      (appointment) => appointment.status !== "Anulata"
+    );
+    const windowStarts = workWindowsForSelectedDate.map((windowRange) => windowRange.start);
+    const windowEnds = workWindowsForSelectedDate.map((windowRange) => windowRange.end);
+    const appointmentStarts = activeAppointments.map((appointment) =>
+      timeToMinutes(appointment.start)
+    );
+    const appointmentEnds = activeAppointments.map((appointment) => {
+      const start = timeToMinutes(appointment.start);
+      return start + parseDurationToMinutes(appointment.duration);
+    });
+    const minMinute = Math.min(
+      timeToMinutes(DEFAULT_DAY_START),
+      ...windowStarts,
+      ...appointmentStarts
+    );
+    const maxMinute = Math.max(
+      timeToMinutes(DEFAULT_DAY_END),
+      ...windowEnds,
+      ...appointmentEnds
+    );
+    const rangeStart = Math.max(0, Math.floor(minMinute / 60) * 60);
+    const rangeEnd = Math.min(24 * 60, Math.max(rangeStart + 60, Math.ceil(maxMinute / 60) * 60));
+    const hourMarks = Array.from(
+      { length: Math.floor((rangeEnd - rangeStart) / 60) + 1 },
+      (_, index) => rangeStart + index * 60
+    );
+    return {
+      appointments: activeAppointments,
+      rangeStart,
+      rangeEnd,
+      hourMarks,
+      height: ((rangeEnd - rangeStart) / 60) * CALENDAR_HOUR_HEIGHT,
+    };
+  }, [appointmentsForDayAll, workWindowsForSelectedDate]);
 
   const reportMonthLabel = useMemo(
     () =>
@@ -2822,6 +2849,51 @@ export default function Home() {
     setDragTargetKey(targetKey);
   };
 
+  const getTimelineStartFromClientY = (
+    clientY: number,
+    appointment: Appointment
+  ) => {
+    const element = calendarTimelineRef.current;
+    if (!element) {
+      return appointment.start;
+    }
+    const rect = element.getBoundingClientRect();
+    const rawMinutes =
+      calendarTimeline.rangeStart +
+      ((clientY - rect.top + element.scrollTop) / CALENDAR_HOUR_HEIGHT) * 60;
+    const snapped =
+      Math.round(rawMinutes / CALENDAR_SNAP_MINUTES) * CALENDAR_SNAP_MINUTES;
+    const duration = parseDurationToMinutes(appointment.duration);
+    const minStart = calendarTimeline.rangeStart;
+    const maxStart = Math.max(minStart, calendarTimeline.rangeEnd - duration);
+    return minutesToTime(Math.min(maxStart, Math.max(minStart, snapped)));
+  };
+
+  const handleCalendarTimelineDrop = async (event: DragEvent<HTMLDivElement>) => {
+    const appointment = movingAppointment;
+    if (!appointment) {
+      return;
+    }
+    event.preventDefault();
+    await handleMoveAppointment(
+      appointment,
+      appointmentDate,
+      getTimelineStartFromClientY(event.clientY, appointment)
+    );
+  };
+
+  const handleCalendarTimelineClick = async (event: MouseEvent<HTMLDivElement>) => {
+    const appointment = movingAppointment;
+    if (!appointment) {
+      return;
+    }
+    await handleMoveAppointment(
+      appointment,
+      appointmentDate,
+      getTimelineStartFromClientY(event.clientY, appointment)
+    );
+  };
+
   const handleDeleteAppointment = async (id: number) => {
     if (!confirm("Sigur vrei sa stergi programarea?")) {
       return;
@@ -3583,270 +3655,244 @@ export default function Home() {
         ) : null}
 
         {activeTab === "month" ? (
-          <section className="mt-6">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold capitalize">{monthLabel}</h2>
-              <span className="text-sm text-muted">apasare pe zi pentru detalii</span>
-            </div>
-
-            <div className="mb-3 grid grid-cols-3 gap-3">
-              <button
-                className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
-                onClick={() => {
-                  setSelectedMonth(monthShift(selectedMonth, -1));
-                  setShowMonthDayView(false);
-                }}
-                type="button"
-              >
-                Luna trecuta
-              </button>
-              <button
-                className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
-                onClick={() => {
-                  setSelectedMonth(toMonthKey(todayIso()));
-                  setShowMonthDayView(false);
-                }}
-                type="button"
-              >
-                Luna curenta
-              </button>
-              <button
-                className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
-                onClick={() => {
-                  setSelectedMonth(monthShift(selectedMonth, 1));
-                  setShowMonthDayView(false);
-                }}
-                type="button"
-              >
-                Luna viitoare
-              </button>
-            </div>
-
-            <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-              {monthQuickPicks.map((month) => (
+          <section className="mt-4">
+            <div className="mb-3 overflow-hidden rounded-[8px] border border-line bg-[#0b0b0c]">
+              <div className="flex items-center justify-between border-b border-[#262626] bg-[#1f2022] px-3 py-3">
                 <button
-                  key={month}
-                  className={`rounded-[8px] border px-3 py-2 text-sm whitespace-nowrap ${
-                    month === selectedMonth
-                      ? "border-gold bg-gold text-black"
-                      : "border-line bg-panel text-muted"
-                  }`}
-                  onClick={() => {
-                    setSelectedMonth(month);
-                    setShowMonthDayView(false);
-                  }}
+                  className="rounded-[8px] border border-line bg-black px-3 py-2 text-lg font-semibold"
+                  onClick={() => setSelectedMonth(monthShift(selectedMonth, -1))}
                   type="button"
                 >
-                  {new Intl.DateTimeFormat("ro-RO", {
-                    month: "short",
-                    year: "2-digit",
-                  }).format(new Date(`${month}-01T12:00:00`))}
+                  ‹
                 </button>
-              ))}
-            </div>
-
-            {showMonthDayView ? (
-              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <button
-                    className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
-                    onClick={() => setShowMonthDayView(false)}
-                    type="button"
-                  >
-                    Inapoi la luna
-                  </button>
-                  <p className="text-sm capitalize text-muted">{humanDate(appointmentDate)}</p>
-                </div>
-
-                <div className="space-y-2">
-                  {dayTimeline.segments.length > 0 ? (
-                    dayTimeline.segments.map((segment) =>
-                      segment.kind === "free" ? (
-                        (() => {
-                          const targetKey = `month-free-${segment.start}-${segment.end}`;
-                          const canMoveHere = canMoveToFreeSegment(movingAppointment, segment.minutes);
-                          return (
-                            <div
-                              key={targetKey}
-                              className={`rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2 ${
-                                dragTargetKey === targetKey ? "ring-2 ring-gold" : ""
-                              }`}
-                              onDragLeave={() => setDragTargetKey("")}
-                              onDragOver={(event) =>
-                                handleFreeSegmentDragOver(event, targetKey, segment.minutes)
-                              }
-                              onDrop={(event) => {
-                                event.preventDefault();
-                                void moveAppointmentToFreeSegment(segment.start, segment.minutes);
-                              }}
-                            >
-                              <div className="flex items-center justify-between">
-                                <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
-                                <p className="text-xs text-[#96f2c6]">
-                                  {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
-                                </p>
-                              </div>
-                              {movingAppointment ? (
-                                <button
-                                  className="mt-2 rounded-[8px] border border-[#57b888] px-3 py-2 text-xs font-semibold text-[#b8ffd9] disabled:opacity-45"
-                                  disabled={!canMoveHere}
-                                  onClick={() =>
-                                    void moveAppointmentToFreeSegment(segment.start, segment.minutes)
-                                  }
-                                  type="button"
-                                >
-                                  Muta aici
-                                </button>
-                              ) : null}
-                            </div>
-                          );
-                        })()
-                      ) : (
-                        (() => {
-                          const serviceColors = serviceColorClasses(segment.appointment.service);
-                          const isMoving = movingAppointmentId === segment.appointment.id || draggingAppointmentId === segment.appointment.id;
-                          return (
-                            <div
-                              key={`month-busy-${segment.appointment.id}-${segment.start}`}
-                              className={`w-full rounded-[8px] border px-3 py-2 text-left ${serviceColors.border} ${serviceColors.bg} ${
-                                isMoving ? "ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
-                              }`}
-                              draggable
-                              onDragEnd={stopDraggingAppointment}
-                              onDragStart={(event) =>
-                                startDraggingAppointment(event, segment.appointment)
-                              }
-                            >
-                              <div className="flex items-center justify-between">
-                                <p className={`text-sm font-semibold ${serviceColors.name}`}>
-                                  {segment.appointment.clientName}
-                                </p>
-                                <p className={`text-xs ${serviceColors.meta}`}>
-                                  {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
-                                </p>
-                              </div>
-                              <p className={`mt-1 text-xs ${serviceColors.meta}`}>
-                                {segment.appointment.service} • {segment.appointment.status}
-                              </p>
-                              <div className="mt-2 flex gap-2">
-                                <button
-                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
-                                  onClick={() =>
-                                    setMovingAppointmentId(
-                                      isMoving ? null : segment.appointment.id
-                                    )
-                                  }
-                                  type="button"
-                                >
-                                  {isMoving ? "Selectata" : "Muta"}
-                                </button>
-                                <button
-                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
-                                  onClick={() => {
-                                    setActiveTab("appointments");
-                                    startEditAppointment(segment.appointment);
-                                  }}
-                                  type="button"
-                                >
-                                  Editeaza
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })()
-                      )
-                    )
-                  ) : (
-                    <div className="rounded-[8px] border border-line bg-panel px-3 py-3 text-sm text-muted">
-                      {dayTimeline.isDayOff
-                        ? "Zi libera sau in afara programului setat."
-                        : "Nu exista intervale pentru ziua selectata."}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-4 grid gap-2">
-                  {appointmentsForDayAll.length === 0 ? (
-                    <div className="rounded-[8px] border border-line bg-panel px-3 py-3 text-sm text-muted">
-                      Nu exista programari in ziua asta.
-                    </div>
-                  ) : (
-                    appointmentsForDayAll.map((appointment) => (
-                      <button
-                        key={`month-list-${appointment.id}`}
-                        className="rounded-[8px] border border-line bg-panel px-3 py-3 text-left"
-                        onClick={() => {
-                          setActiveTab("appointments");
-                          startEditAppointment(appointment);
-                        }}
-                        type="button"
-                      >
-                        <p className="text-sm font-semibold">{appointment.clientName}</p>
-                        <p className="mt-1 text-xs text-muted">
-                          {appointment.start} • {appointment.service} • {appointment.duration}
-                        </p>
-                      </button>
-                    ))
-                  )}
-                </div>
+                <button
+                  className="rounded-[8px] px-3 py-2 text-xl font-semibold capitalize"
+                  onClick={() => setSelectedMonth(toMonthKey(todayIso()))}
+                  type="button"
+                >
+                  {monthLabel}
+                </button>
+                <button
+                  className="rounded-[8px] border border-line bg-black px-3 py-2 text-lg font-semibold"
+                  onClick={() => setSelectedMonth(monthShift(selectedMonth, 1))}
+                  type="button"
+                >
+                  ›
+                </button>
               </div>
-            ) : (
-              <div className="gold-ring rounded-[8px] border border-line bg-panel-soft p-3">
-                <div className="mb-2 grid grid-cols-7 gap-2">
-                  {["L", "M", "M", "J", "V", "S", "D"].map((label, idx) => (
-                    <p key={`${label}-${idx}`} className="text-center text-sm text-muted">
-                      {label}
-                    </p>
-                  ))}
-                </div>
 
-                <div className="grid grid-cols-7 gap-2">
-                  {monthGridDays.map((day) => (
+              <div className="grid grid-cols-7 border-b border-[#1b1b1b] bg-black px-2 py-2">
+                {["L", "M", "M", "J", "V", "S", "D"].map((label, idx) => (
+                  <p key={`${label}-${idx}`} className="text-center text-xs font-medium text-[#a8a8ad]">
+                    {label}
+                  </p>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 bg-black p-2">
+                {monthGridDays.map((day) => {
+                  const bars = Math.min(day.count, 5);
+                  return (
                     <button
                       key={day.iso}
-                      className={`h-24 rounded-[8px] border px-1.5 py-2 text-left transition ${
-                        day.inCurrentMonth
-                          ? "border-line bg-panel"
-                          : "border-[#2a2a2a] bg-black/40"
-                      } ${day.isSelected ? "border-gold" : ""} flex flex-col`}
+                      className={`min-h-[62px] rounded-[4px] px-1 py-2 text-center transition ${
+                        day.isSelected
+                          ? "bg-[#c8423d] text-white"
+                          : day.inCurrentMonth
+                            ? "bg-black text-foreground"
+                            : "bg-black text-[#454545]"
+                      }`}
                       onClick={() => {
                         setAppointmentDate(day.iso);
                         setSelectedMonth(toMonthKey(day.iso));
-                        setShowMonthDayView(true);
                       }}
                       type="button"
                     >
-                      <p
-                        className={`text-sm font-semibold ${
-                          day.inCurrentMonth ? "text-foreground" : "text-muted"
-                        }`}
-                      >
-                        {day.day}
-                      </p>
-                      {day.inCurrentMonth ? (
-                        <div className="mt-1 flex flex-1 flex-col">
-                          <div className="grid gap-1">
-                            {Array.from({ length: 6 }, (_, index) => (
-                              <span
-                                key={`${day.iso}-slot-${index}`}
-                                className={`h-1 w-full rounded-[3px] ${
-                                  index < Math.min(day.count, 6)
-                                    ? "bg-gold"
-                                    : "bg-[#2d2d2d]"
-                                }`}
-                              />
-                            ))}
-                          </div>
-                          <p className="mt-auto whitespace-nowrap pt-1 text-[10px] leading-3 text-muted">
-                            {reservationCountLabel(day.count)}
-                          </p>
-                        </div>
-                      ) : null}
+                      <p className="text-lg font-semibold leading-none">{day.day}</p>
+                      <div className="mt-2 flex justify-center gap-0.5">
+                        {Array.from({ length: 5 }, (_, index) => (
+                          <span
+                            key={`${day.iso}-bar-${index}`}
+                            className={`h-1.5 w-1.5 rounded-[2px] ${
+                              index < bars
+                                ? index === 4 && day.count > 4
+                                  ? "bg-[#b477e8]"
+                                  : "bg-[#55b6e8]"
+                                : day.inCurrentMonth
+                                  ? "bg-[#1d1d1d]"
+                                  : "bg-[#101010]"
+                            }`}
+                          />
+                        ))}
+                      </div>
                     </button>
-                  ))}
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase text-muted">
+                  {new Intl.DateTimeFormat("ro-RO", { weekday: "short" }).format(
+                    new Date(`${appointmentDate}T12:00:00`)
+                  )}
+                </p>
+                <h2 className="text-lg font-semibold capitalize">{fullDateLabel(appointmentDate)}</h2>
+              </div>
+              <button
+                className="rounded-[8px] bg-gold px-4 py-3 text-xl font-semibold text-black"
+                onClick={() => {
+                  setActiveTab("appointments");
+                  setActivePanel("appointment");
+                  setAppointmentDate(appointmentDate);
+                  setScrollToEditorTick((value) => value + 1);
+                }}
+                type="button"
+              >
+                +
+              </button>
+            </div>
+
+            {movingAppointment ? (
+              <div className="mb-3 rounded-[8px] border border-gold bg-[#211b0d] px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gold">Muti programarea</p>
+                    <p className="mt-1 text-sm text-[#ddd4c5]">
+                      {movingAppointment.clientName} • {movingAppointment.duration}
+                    </p>
+                  </div>
+                  <button
+                    className="rounded-[8px] border border-line bg-black px-3 py-2 text-sm"
+                    onClick={() => {
+                      setMovingAppointmentId(null);
+                      setDraggingAppointmentId(null);
+                    }}
+                    type="button"
+                  >
+                    Anuleaza
+                  </button>
                 </div>
               </div>
-            )}
+            ) : null}
+
+            <div className="overflow-hidden rounded-[8px] border border-[#303136] bg-[#202124]">
+              <div className="flex items-center justify-between border-b border-[#34363a] bg-[#2c2d31] px-3 py-3">
+                <p className="text-sm font-semibold">
+                  {appointmentsForDayAll.length} programari
+                </p>
+                <p className="text-xs text-[#a8a8ad]">
+                  Liber {Math.floor(dayTimeline.totalFreeMinutes / 60)}h {dayTimeline.totalFreeMinutes % 60}m
+                </p>
+              </div>
+
+              <div className="max-h-[68vh] overflow-y-auto">
+                <div
+                  className="relative"
+                  onClick={(event) => void handleCalendarTimelineClick(event)}
+                  onDragLeave={() => setDragTargetKey("")}
+                  onDragOver={(event) => {
+                    if (!movingAppointment) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setDragTargetKey("calendar-timeline");
+                  }}
+                  onDrop={(event) => void handleCalendarTimelineDrop(event)}
+                  ref={calendarTimelineRef}
+                  style={{ height: `${calendarTimeline.height}px` }}
+                >
+                  {calendarTimeline.hourMarks.map((minute) => {
+                    const top =
+                      ((minute - calendarTimeline.rangeStart) / 60) * CALENDAR_HOUR_HEIGHT;
+                    return (
+                      <div
+                        key={`hour-${minute}`}
+                        className="absolute inset-x-0 border-t border-[#3a3c40]"
+                        style={{ top }}
+                      >
+                        <span className="absolute -top-3 left-3 bg-[#202124] pr-2 text-xs text-[#a8a8ad]">
+                          {minutesToTime(minute)}
+                        </span>
+                      </div>
+                    );
+                  })}
+
+                  {dragTargetKey === "calendar-timeline" && movingAppointment ? (
+                    <div className="absolute inset-y-0 left-[70px] right-3 rounded-[8px] border border-dashed border-gold/70" />
+                  ) : null}
+
+                  <div className="absolute bottom-0 left-[62px] top-0 border-l border-[#3a3c40]" />
+
+                  {calendarTimeline.appointments.map((appointment) => {
+                    const serviceColors = serviceColorClasses(appointment.service);
+                    const start = timeToMinutes(appointment.start);
+                    const end = start + parseDurationToMinutes(appointment.duration);
+                    const top =
+                      ((start - calendarTimeline.rangeStart) / 60) * CALENDAR_HOUR_HEIGHT;
+                    const height = Math.max(
+                      38,
+                      ((end - start) / 60) * CALENDAR_HOUR_HEIGHT - 4
+                    );
+                    const isMoving =
+                      movingAppointmentId === appointment.id ||
+                      draggingAppointmentId === appointment.id;
+                    return (
+                      <div
+                        key={`calendar-block-${appointment.id}`}
+                        className={`absolute left-[76px] right-3 overflow-hidden rounded-[8px] border px-3 py-2 shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
+                          isMoving ? "ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
+                        }`}
+                        draggable
+                        onClick={(event) => event.stopPropagation()}
+                        onDragEnd={stopDraggingAppointment}
+                        onDragStart={(event) => startDraggingAppointment(event, appointment)}
+                        style={{ top: `${top}px`, height: `${height}px` }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className={`truncate text-sm font-semibold ${serviceColors.name}`}>
+                              {appointment.clientName}
+                            </p>
+                            <p className={`mt-0.5 truncate text-xs ${serviceColors.meta}`}>
+                              {appointment.service}
+                            </p>
+                          </div>
+                          <p className={`shrink-0 text-xs ${serviceColors.meta}`}>
+                            {appointment.start}
+                          </p>
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            className="rounded-[8px] border border-line bg-white/70 px-2 py-1 text-xs font-semibold text-[#1f1a12]"
+                            onClick={() => setMovingAppointmentId(isMoving ? null : appointment.id)}
+                            type="button"
+                          >
+                            {isMoving ? "Selectata" : "Muta"}
+                          </button>
+                          <button
+                            className="rounded-[8px] border border-line bg-white/70 px-2 py-1 text-xs font-semibold text-[#1f1a12]"
+                            onClick={() => {
+                              setActiveTab("appointments");
+                              startEditAppointment(appointment);
+                            }}
+                            type="button"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {calendarTimeline.appointments.length === 0 ? (
+                    <div className="absolute left-[76px] right-3 top-8 rounded-[8px] border border-line bg-[#18191b] px-3 py-3 text-sm text-muted">
+                      Zi libera.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           </section>
         ) : null}
 
