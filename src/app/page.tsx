@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DragEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { DayPicker } from "react-day-picker";
 import * as XLSX from "xlsx";
@@ -188,6 +189,14 @@ const minutesToTime = (total: number) => {
   const minutes = total % 60;
   return `${`${hours}`.padStart(2, "0")}:${`${minutes}`.padStart(2, "0")}`;
 };
+
+const sortAppointmentsByDateTime = (items: Appointment[]) =>
+  [...items].sort((a, b) => {
+    if (a.date === b.date) {
+      return a.start.localeCompare(b.start);
+    }
+    return a.date.localeCompare(b.date);
+  });
 
 const dateToWeekdayKey = (isoDate: string) =>
   (new Date(`${isoDate}T12:00:00`).getDay() + 6) % 7;
@@ -528,6 +537,9 @@ export default function Home() {
   const [clientPhone, setClientPhone] = useState("");
   const [clientNotes, setClientNotes] = useState("");
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
+  const [movingAppointmentId, setMovingAppointmentId] = useState<number | null>(null);
+  const [draggingAppointmentId, setDraggingAppointmentId] = useState<number | null>(null);
+  const [dragTargetKey, setDragTargetKey] = useState("");
   const [serviceName, setServiceName] = useState("");
   const [serviceDuration, setServiceDuration] = useState("");
   const [servicePrice, setServicePrice] = useState(0);
@@ -844,6 +856,15 @@ export default function Home() {
   const selectedClient = useMemo(
     () => clients.find((client) => client.id === selectedClientId) ?? null,
     [clients, selectedClientId]
+  );
+
+  const movingAppointment = useMemo(
+    () =>
+      appointments.find(
+        (appointment) =>
+          appointment.id === (movingAppointmentId ?? draggingAppointmentId)
+      ) ?? null,
+    [appointments, draggingAppointmentId, movingAppointmentId]
   );
 
   const activeServices = useMemo(
@@ -1848,6 +1869,19 @@ export default function Home() {
     });
   };
 
+  const fitsInsideWorkWindows = (
+    date: string,
+    startTime: string,
+    duration: string
+  ) => {
+    const start = timeToMinutes(startTime);
+    const end = start + parseDurationToMinutes(duration);
+    const windows = getWorkWindowsForDate(date, businessSettings);
+    return windows.some(
+      (windowRange) => start >= windowRange.start && end <= windowRange.end
+    );
+  };
+
   const buildReservationWarning = () => {
     if (!selectedClient) {
       return null;
@@ -2676,6 +2710,118 @@ export default function Home() {
     setScrollToEditorTick((value) => value + 1);
   };
 
+  const handleMoveAppointment = async (
+    appointment: Appointment,
+    nextDate: string,
+    nextStart: string
+  ) => {
+    if (!fitsInsideWorkWindows(nextDate, nextStart, appointment.duration)) {
+      setToast({
+        text: "Nu pot muta programarea in afara programului sau peste pauza.",
+        type: "error",
+      });
+      return;
+    }
+
+    const dayAppointments = appointments.filter((item) => item.date === nextDate);
+    if (hasConflict(appointment.id, nextStart, appointment.duration, dayAppointments)) {
+      setToast({ text: "Nu pot muta programarea: se suprapune cu alta.", type: "error" });
+      return;
+    }
+
+    const updated = { ...appointment, date: nextDate, start: nextStart };
+
+    if (!isSupabaseConfigured || !supabase || !session || !isOnline || appointment.id < 0) {
+      const next = sortAppointmentsByDateTime(
+        appointments.map((item) => (item.id === appointment.id ? updated : item))
+      );
+      setAppointments(next);
+      persistLocalState({ appointments: next });
+      if (isSupabaseConfigured) {
+        enqueueOfflineOp({ type: "upsert_appointment", record: updated });
+      }
+      setMovingAppointmentId(null);
+      setDraggingAppointmentId(null);
+      setDragTargetKey("");
+      setToast({
+        text:
+          !isOnline && isSupabaseConfigured
+            ? `Programare mutata offline la ${nextStart}. Se sincronizeaza la reconectare.`
+            : `Programare mutata la ${nextStart}.`,
+        type: "success",
+      });
+      return;
+    }
+
+    const { error } = await supabase
+      .from("appointments")
+      .update({ appointment_date: nextDate, start_time: nextStart })
+      .eq("id", appointment.id);
+
+    if (error) {
+      setToast({ text: "Nu am putut muta programarea.", type: "error" });
+      return;
+    }
+
+    setAppointments((current) =>
+      sortAppointmentsByDateTime(
+        current.map((item) => (item.id === appointment.id ? updated : item))
+      )
+    );
+    setMovingAppointmentId(null);
+    setDraggingAppointmentId(null);
+    setDragTargetKey("");
+    setToast({ text: `Programare mutata la ${nextStart}.`, type: "success" });
+  };
+
+  const startDraggingAppointment = (
+    event: DragEvent<HTMLElement>,
+    appointment: Appointment
+  ) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(appointment.id));
+    setDraggingAppointmentId(appointment.id);
+    setMovingAppointmentId(null);
+  };
+
+  const stopDraggingAppointment = () => {
+    setDraggingAppointmentId(null);
+    setDragTargetKey("");
+  };
+
+  const canMoveToFreeSegment = (appointment: Appointment | null, minutes: number) => {
+    if (!appointment) return false;
+    return minutes >= parseDurationToMinutes(appointment.duration);
+  };
+
+  const moveAppointmentToFreeSegment = async (
+    start: number,
+    minutes: number
+  ) => {
+    const appointment = movingAppointment;
+    if (!appointment) {
+      return;
+    }
+    if (!canMoveToFreeSegment(appointment, minutes)) {
+      setToast({ text: "Intervalul liber este prea scurt pentru programarea asta.", type: "error" });
+      return;
+    }
+    await handleMoveAppointment(appointment, appointmentDate, minutesToTime(start));
+  };
+
+  const handleFreeSegmentDragOver = (
+    event: DragEvent<HTMLElement>,
+    targetKey: string,
+    minutes: number
+  ) => {
+    if (!canMoveToFreeSegment(movingAppointment, minutes)) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragTargetKey(targetKey);
+  };
+
   const handleDeleteAppointment = async (id: number) => {
     if (!confirm("Sigur vrei sa stergi programarea?")) {
       return;
@@ -2748,35 +2894,13 @@ export default function Home() {
   };
 
   const handleShiftAppointmentMinutes = async (appointment: Appointment, minutes: number) => {
-    const nextStart = minutesToTime(timeToMinutes(appointment.start) + minutes);
-    const dayAppointments = appointments.filter((item) => item.date === appointment.date);
-    if (hasConflict(appointment.id, nextStart, appointment.duration, dayAppointments)) {
-      setToast({ text: "Nu pot muta programarea: se suprapune cu alta.", type: "error" });
+    const nextStartMinutes = timeToMinutes(appointment.start) + minutes;
+    const nextEndMinutes = nextStartMinutes + parseDurationToMinutes(appointment.duration);
+    if (nextStartMinutes < 0 || nextEndMinutes > 24 * 60) {
+      setToast({ text: "Nu pot muta programarea in afara zilei.", type: "error" });
       return;
     }
-
-    const updated = { ...appointment, start: nextStart };
-    if (!isSupabaseConfigured || !supabase || !session || !isOnline || appointment.id < 0) {
-      const next = appointments.map((item) => (item.id === appointment.id ? updated : item));
-      setAppointments(next);
-      persistLocalState({ appointments: next });
-      if (isSupabaseConfigured) enqueueOfflineOp({ type: "upsert_appointment", record: updated });
-      setToast({ text: `Programare mutata la ${nextStart}.`, type: "success" });
-      return;
-    }
-
-    const { error } = await supabase
-      .from("appointments")
-      .update({ start_time: nextStart })
-      .eq("id", appointment.id);
-    if (error) {
-      setToast({ text: "Nu am putut muta programarea.", type: "error" });
-      return;
-    }
-    setAppointments((current) =>
-      current.map((item) => (item.id === appointment.id ? updated : item))
-    );
-    setToast({ text: `Programare mutata la ${nextStart}.`, type: "success" });
+    await handleMoveAppointment(appointment, appointment.date, minutesToTime(nextStartMinutes));
   };
 
   const handleSaveService = async () => {
@@ -3351,27 +3475,63 @@ export default function Home() {
                   {dayTimeline.segments.length > 0 ? (
                     dayTimeline.segments.map((segment) =>
                       segment.kind === "free" ? (
-                        <div
-                          key={`home-free-${segment.start}-${segment.end}`}
-                          className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
-                        >
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
-                            <p className="text-xs text-[#96f2c6]">
-                              {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
-                            </p>
-                          </div>
-                          <p className="mt-1 text-xs text-[#96f2c6]">
-                            {Math.floor(segment.minutes / 60)}h {segment.minutes % 60}m disponibil
-                          </p>
-                        </div>
+                        (() => {
+                          const targetKey = `home-free-${segment.start}-${segment.end}`;
+                          const canMoveHere = canMoveToFreeSegment(movingAppointment, segment.minutes);
+                          return (
+                            <div
+                              key={targetKey}
+                              className={`rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2 ${
+                                dragTargetKey === targetKey ? "ring-2 ring-gold" : ""
+                              }`}
+                              onDragLeave={() => setDragTargetKey("")}
+                              onDragOver={(event) =>
+                                handleFreeSegmentDragOver(event, targetKey, segment.minutes)
+                              }
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                void moveAppointmentToFreeSegment(segment.start, segment.minutes);
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
+                                <p className="text-xs text-[#96f2c6]">
+                                  {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                                </p>
+                              </div>
+                              <p className="mt-1 text-xs text-[#96f2c6]">
+                                {Math.floor(segment.minutes / 60)}h {segment.minutes % 60}m disponibil
+                              </p>
+                              {movingAppointment ? (
+                                <button
+                                  className="mt-2 rounded-[8px] border border-[#57b888] px-3 py-2 text-xs font-semibold text-[#b8ffd9] disabled:opacity-45"
+                                  disabled={!canMoveHere}
+                                  onClick={() =>
+                                    void moveAppointmentToFreeSegment(segment.start, segment.minutes)
+                                  }
+                                  type="button"
+                                >
+                                  Muta aici
+                                </button>
+                              ) : null}
+                            </div>
+                          );
+                        })()
                       ) : (
                         (() => {
                           const serviceColors = serviceColorClasses(segment.appointment.service);
+                          const isMoving = movingAppointmentId === segment.appointment.id || draggingAppointmentId === segment.appointment.id;
                           return (
                             <div
                               key={`home-busy-${segment.appointment.id}-${segment.start}`}
-                              className={`rounded-[8px] border px-3 py-2 ${serviceColors.border} ${serviceColors.bg}`}
+                              className={`rounded-[8px] border px-3 py-2 ${serviceColors.border} ${serviceColors.bg} ${
+                                isMoving ? "ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
+                              }`}
+                              draggable
+                              onDragEnd={stopDraggingAppointment}
+                              onDragStart={(event) =>
+                                startDraggingAppointment(event, segment.appointment)
+                              }
                             >
                               <div className="flex items-center justify-between">
                                 <p className={`text-sm font-semibold ${serviceColors.name}`}>
@@ -3384,6 +3544,26 @@ export default function Home() {
                               <p className={`mt-1 text-xs ${serviceColors.meta}`}>
                                 {segment.appointment.service} • {segment.appointment.status}
                               </p>
+                              <div className="mt-2 flex gap-2">
+                                <button
+                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
+                                  onClick={() =>
+                                    setMovingAppointmentId(
+                                      isMoving ? null : segment.appointment.id
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  {isMoving ? "Selectata" : "Muta"}
+                                </button>
+                                <button
+                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
+                                  onClick={() => startEditAppointment(segment.appointment)}
+                                  type="button"
+                                >
+                                  Editeaza
+                                </button>
+                              </div>
                             </div>
                           );
                         })()
@@ -3482,29 +3662,60 @@ export default function Home() {
                   {dayTimeline.segments.length > 0 ? (
                     dayTimeline.segments.map((segment) =>
                       segment.kind === "free" ? (
-                        <div
-                          key={`month-free-${segment.start}-${segment.end}`}
-                          className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
-                        >
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
-                            <p className="text-xs text-[#96f2c6]">
-                              {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
-                            </p>
-                          </div>
-                        </div>
+                        (() => {
+                          const targetKey = `month-free-${segment.start}-${segment.end}`;
+                          const canMoveHere = canMoveToFreeSegment(movingAppointment, segment.minutes);
+                          return (
+                            <div
+                              key={targetKey}
+                              className={`rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2 ${
+                                dragTargetKey === targetKey ? "ring-2 ring-gold" : ""
+                              }`}
+                              onDragLeave={() => setDragTargetKey("")}
+                              onDragOver={(event) =>
+                                handleFreeSegmentDragOver(event, targetKey, segment.minutes)
+                              }
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                void moveAppointmentToFreeSegment(segment.start, segment.minutes);
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
+                                <p className="text-xs text-[#96f2c6]">
+                                  {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                                </p>
+                              </div>
+                              {movingAppointment ? (
+                                <button
+                                  className="mt-2 rounded-[8px] border border-[#57b888] px-3 py-2 text-xs font-semibold text-[#b8ffd9] disabled:opacity-45"
+                                  disabled={!canMoveHere}
+                                  onClick={() =>
+                                    void moveAppointmentToFreeSegment(segment.start, segment.minutes)
+                                  }
+                                  type="button"
+                                >
+                                  Muta aici
+                                </button>
+                              ) : null}
+                            </div>
+                          );
+                        })()
                       ) : (
                         (() => {
                           const serviceColors = serviceColorClasses(segment.appointment.service);
+                          const isMoving = movingAppointmentId === segment.appointment.id || draggingAppointmentId === segment.appointment.id;
                           return (
-                            <button
+                            <div
                               key={`month-busy-${segment.appointment.id}-${segment.start}`}
-                              className={`w-full rounded-[8px] border px-3 py-2 text-left ${serviceColors.border} ${serviceColors.bg}`}
-                              onClick={() => {
-                                setActiveTab("appointments");
-                                startEditAppointment(segment.appointment);
-                              }}
-                              type="button"
+                              className={`w-full rounded-[8px] border px-3 py-2 text-left ${serviceColors.border} ${serviceColors.bg} ${
+                                isMoving ? "ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
+                              }`}
+                              draggable
+                              onDragEnd={stopDraggingAppointment}
+                              onDragStart={(event) =>
+                                startDraggingAppointment(event, segment.appointment)
+                              }
                             >
                               <div className="flex items-center justify-between">
                                 <p className={`text-sm font-semibold ${serviceColors.name}`}>
@@ -3517,7 +3728,30 @@ export default function Home() {
                               <p className={`mt-1 text-xs ${serviceColors.meta}`}>
                                 {segment.appointment.service} • {segment.appointment.status}
                               </p>
-                            </button>
+                              <div className="mt-2 flex gap-2">
+                                <button
+                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
+                                  onClick={() =>
+                                    setMovingAppointmentId(
+                                      isMoving ? null : segment.appointment.id
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  {isMoving ? "Selectata" : "Muta"}
+                                </button>
+                                <button
+                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
+                                  onClick={() => {
+                                    setActiveTab("appointments");
+                                    startEditAppointment(segment.appointment);
+                                  }}
+                                  type="button"
+                                >
+                                  Editeaza
+                                </button>
+                              </div>
+                            </div>
                           );
                         })()
                       )
@@ -3914,27 +4148,63 @@ export default function Home() {
                   {dayTimeline.segments.length > 0 ? (
                     dayTimeline.segments.map((segment) =>
                       segment.kind === "free" ? (
-                        <div
-                          key={`free-${segment.start}-${segment.end}`}
-                          className="rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2"
-                        >
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
-                            <p className="text-xs text-[#96f2c6]">
-                              {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
-                            </p>
-                          </div>
-                          <p className="mt-1 text-xs text-[#96f2c6]">
-                            {Math.floor(segment.minutes / 60)}h {segment.minutes % 60}m disponibil
-                          </p>
-                        </div>
+                        (() => {
+                          const targetKey = `free-${segment.start}-${segment.end}`;
+                          const canMoveHere = canMoveToFreeSegment(movingAppointment, segment.minutes);
+                          return (
+                            <div
+                              key={targetKey}
+                              className={`rounded-[8px] border border-[#2a7a58] bg-[#0f2b20] px-3 py-2 ${
+                                dragTargetKey === targetKey ? "ring-2 ring-gold" : ""
+                              }`}
+                              onDragLeave={() => setDragTargetKey("")}
+                              onDragOver={(event) =>
+                                handleFreeSegmentDragOver(event, targetKey, segment.minutes)
+                              }
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                void moveAppointmentToFreeSegment(segment.start, segment.minutes);
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium text-[#96f2c6]">Liber</p>
+                                <p className="text-xs text-[#96f2c6]">
+                                  {minutesToTime(segment.start)} - {minutesToTime(segment.end)}
+                                </p>
+                              </div>
+                              <p className="mt-1 text-xs text-[#96f2c6]">
+                                {Math.floor(segment.minutes / 60)}h {segment.minutes % 60}m disponibil
+                              </p>
+                              {movingAppointment ? (
+                                <button
+                                  className="mt-2 rounded-[8px] border border-[#57b888] px-3 py-2 text-xs font-semibold text-[#b8ffd9] disabled:opacity-45"
+                                  disabled={!canMoveHere}
+                                  onClick={() =>
+                                    void moveAppointmentToFreeSegment(segment.start, segment.minutes)
+                                  }
+                                  type="button"
+                                >
+                                  Muta aici
+                                </button>
+                              ) : null}
+                            </div>
+                          );
+                        })()
                       ) : (
                         (() => {
                           const serviceColors = serviceColorClasses(segment.appointment.service);
+                          const isMoving = movingAppointmentId === segment.appointment.id || draggingAppointmentId === segment.appointment.id;
                           return (
                             <div
                               key={`busy-${segment.appointment.id}-${segment.start}`}
-                              className={`rounded-[8px] border px-3 py-2 ${serviceColors.border} ${serviceColors.bg}`}
+                              className={`rounded-[8px] border px-3 py-2 ${serviceColors.border} ${serviceColors.bg} ${
+                                isMoving ? "ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
+                              }`}
+                              draggable
+                              onDragEnd={stopDraggingAppointment}
+                              onDragStart={(event) =>
+                                startDraggingAppointment(event, segment.appointment)
+                              }
                             >
                               <div className="flex items-center justify-between">
                                 <p className={`text-sm font-semibold ${serviceColors.name}`}>
@@ -3947,6 +4217,26 @@ export default function Home() {
                               <p className={`mt-1 text-xs ${serviceColors.meta}`}>
                                 {segment.appointment.service} • {segment.appointment.status}
                               </p>
+                              <div className="mt-2 flex gap-2">
+                                <button
+                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
+                                  onClick={() =>
+                                    setMovingAppointmentId(
+                                      isMoving ? null : segment.appointment.id
+                                    )
+                                  }
+                                  type="button"
+                                >
+                                  {isMoving ? "Selectata" : "Muta"}
+                                </button>
+                                <button
+                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
+                                  onClick={() => startEditAppointment(segment.appointment)}
+                                  type="button"
+                                >
+                                  Editeaza
+                                </button>
+                              </div>
                             </div>
                           );
                         })()
