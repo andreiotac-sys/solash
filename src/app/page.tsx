@@ -30,6 +30,14 @@ const STORAGE_KEY = "solash-demo-store";
 const OFFLINE_QUEUE_KEY = "solash-offline-queue";
 const BUSINESS_SETTINGS_KEY = "solash-business-settings";
 const BUSINESS_BREAKS_DISABLED_KEY = "solash-business-breaks-disabled-v2";
+const WHATSAPP_TEMPLATE_KEY = "solash-whatsapp-template";
+const PERSONAL_CLIENT_MARKER = "[solash-personal-client]";
+const PERSONAL_BLOCK_MARKER = "[solash-personal-block]";
+const PERSONAL_BLOCK_SERVICE = "Blocaj personal";
+const PERSONAL_BLOCK_PHONE = "0000000000";
+const PERSONAL_BLOCK_PRESETS = ["Eu gene", "Eu par", "Eu unghii"];
+const DEFAULT_WHATSAPP_TEMPLATE =
+  "Buna, {clienta}! Confirmam programarea ta SoLash pentru {data} la {ora}. Te asteptam cu drag!";
 const APPOINTMENT_SELECT_WITH_NOTES =
   "id, client_id, service, appointment_date, start_time, duration, price, status, notes, clients(name, phone)";
 const APPOINTMENT_SELECT_WITHOUT_NOTES =
@@ -218,6 +226,8 @@ const minutesToDurationInput = (total: number) => {
 
 const CALENDAR_HOUR_HEIGHT = 72;
 const CALENDAR_SNAP_MINUTES = 15;
+const CALENDAR_MOVE_HOLD_MS = 900;
+const CALENDAR_CREATE_HOLD_MS = 650;
 const QUICK_APPOINTMENT_TIMES = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"];
 const QUICK_DURATIONS = ["30min", "1h", "1h30min", "2h", "2h30min"];
 
@@ -316,6 +326,46 @@ const formatPhoneForWhatsApp = (phone: string) => {
     cleaned = `40${cleaned}`;
   }
   return cleaned;
+};
+
+const isPersonalClient = (client: Client) =>
+  client.notes.includes(PERSONAL_CLIENT_MARKER) ||
+  (client.phone === PERSONAL_BLOCK_PHONE && PERSONAL_BLOCK_PRESETS.includes(client.name));
+
+const isPersonalBlock = (appointment: Appointment) =>
+  appointment.service === PERSONAL_BLOCK_SERVICE ||
+  appointment.notes.includes(PERSONAL_BLOCK_MARKER);
+
+const readWhatsAppTemplate = () => {
+  if (typeof window === "undefined") {
+    return DEFAULT_WHATSAPP_TEMPLATE;
+  }
+  return window.localStorage.getItem(WHATSAPP_TEMPLATE_KEY) ?? DEFAULT_WHATSAPP_TEMPLATE;
+};
+
+const writeWhatsAppTemplate = (template: string) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(WHATSAPP_TEMPLATE_KEY, template);
+};
+
+const renderWhatsAppTemplate = (template: string, appointment: Appointment) => {
+  const source = template.trim() || DEFAULT_WHATSAPP_TEMPLATE;
+  const replacements: Record<string, string> = {
+    clienta: appointment.clientName,
+    data: humanDate(appointment.date),
+    data_scurta: formatShortDate(appointment.date),
+    ora: appointment.start,
+    serviciu: appointment.service,
+    durata: appointment.duration,
+    pret: formatPrice(appointment.price),
+  };
+
+  return Object.entries(replacements).reduce(
+    (text, [key, value]) => text.replaceAll(`{${key}}`, value),
+    source
+  );
 };
 
 const statusBadgeClass = (status: string) => {
@@ -554,6 +604,7 @@ export default function Home() {
   const appointmentEditorRef = useRef<HTMLElement | null>(null);
   const appointmentFormCardRef = useRef<HTMLDivElement | null>(null);
   const calendarTimelineRef = useRef<HTMLDivElement | null>(null);
+  const calendarMoveHoldTimerRef = useRef<number | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [activePanel, setActivePanel] = useState<PanelKey>("appointment");
@@ -628,6 +679,12 @@ export default function Home() {
     readBusinessSettings()
   );
   const [daysOffInput, setDaysOffInput] = useState(() => readBusinessSettings().daysOff.join(", "));
+  const [personalBlockTitle, setPersonalBlockTitle] = useState(PERSONAL_BLOCK_PRESETS[0]);
+  const [personalBlockDate, setPersonalBlockDate] = useState(todayIso());
+  const [personalBlockTime, setPersonalBlockTime] = useState("10:00");
+  const [personalBlockDuration, setPersonalBlockDuration] = useState("1h");
+  const [isSavingPersonalBlock, setIsSavingPersonalBlock] = useState(false);
+  const [whatsappTemplate, setWhatsappTemplate] = useState(readWhatsAppTemplate);
   const [saveWarning, setSaveWarning] = useState<SaveWarning | null>(null);
   const [nextSlotIndex, setNextSlotIndex] = useState(0);
   const [toast, setToast] = useState<{
@@ -1594,7 +1651,9 @@ export default function Home() {
 
   const filteredClients = useMemo(() => {
     const term = clientSearch.trim().toLowerCase();
-    const list = [...clients].sort((a, b) => a.name.localeCompare(b.name, "ro"));
+    const list = clients
+      .filter((client) => !isPersonalClient(client))
+      .sort((a, b) => a.name.localeCompare(b.name, "ro"));
     if (!term) {
       return list;
     }
@@ -1608,7 +1667,9 @@ export default function Home() {
 
   const filteredClientsForAppointment = useMemo(() => {
     const term = appointmentClientFilter.trim().toLowerCase();
-    const list = [...clients].sort((a, b) => a.name.localeCompare(b.name, "ro"));
+    const list = clients
+      .filter((client) => !isPersonalClient(client))
+      .sort((a, b) => a.name.localeCompare(b.name, "ro"));
     if (!term) {
       return list;
     }
@@ -1618,6 +1679,14 @@ export default function Home() {
         client.phone.toLowerCase().includes(term)
     );
   }, [appointmentClientFilter, clients]);
+
+  const personalBlocks = useMemo(
+    () =>
+      appointments
+        .filter(isPersonalBlock)
+        .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date))),
+    [appointments]
+  );
 
   useEffect(() => {
     if (filteredClientsForAppointment.length === 0) {
@@ -1860,6 +1929,19 @@ export default function Home() {
   useEffect(() => {
     writeBusinessSettings(businessSettings);
   }, [businessSettings]);
+
+  useEffect(() => {
+    writeWhatsAppTemplate(whatsappTemplate);
+  }, [whatsappTemplate]);
+
+  useEffect(
+    () => () => {
+      if (calendarMoveHoldTimerRef.current) {
+        window.clearTimeout(calendarMoveHoldTimerRef.current);
+      }
+    },
+    []
+  );
 
   const resetAppointmentForm = (service?: Service) => {
     const mostUsedService =
@@ -2171,7 +2253,7 @@ export default function Home() {
   };
 
   const handleWhatsAppConfirm = async (appointment: Appointment) => {
-    const text = `Buna, ${appointment.clientName}! Confirmam programarea ta SoLash pentru ${appointment.date} la ${appointment.start}. Te asteptam cu drag!`;
+    const text = renderWhatsAppTemplate(whatsappTemplate, appointment);
     window.open(
       `https://wa.me/${formatPhoneForWhatsApp(appointment.phone)}?text=${encodeURIComponent(text)}`,
       "_blank",
@@ -2780,6 +2862,162 @@ export default function Home() {
     setActiveTab("home");
   };
 
+  const handleSavePersonalBlock = async () => {
+    const title = personalBlockTitle.trim();
+    const durationMinutes = parseDurationToMinutes(personalBlockDuration);
+    if (!title) {
+      setToast({ text: "Scrie numele blocajului, de exemplu Eu gene.", type: "error" });
+      return;
+    }
+    if (durationMinutes <= 0) {
+      setToast({ text: "Durata blocajului nu este valida.", type: "error" });
+      return;
+    }
+
+    if (!fitsInsideWorkWindows(personalBlockDate, personalBlockTime, personalBlockDuration)) {
+      setToast({ text: "Blocajul este in afara programului setat.", type: "error" });
+      return;
+    }
+
+    const dayAppointments = appointments.filter(
+      (appointment) => appointment.date === personalBlockDate
+    );
+    if (hasConflict(null, personalBlockTime, personalBlockDuration, dayAppointments)) {
+      setToast({ text: "Blocajul se suprapune cu alta programare.", type: "error" });
+      return;
+    }
+
+    setIsSavingPersonalBlock(true);
+
+    const findPersonalClient = (list: Client[]) =>
+      list.find(
+        (client) =>
+          client.name.toLowerCase() === title.toLowerCase() &&
+          (client.notes.includes(PERSONAL_CLIENT_MARKER) ||
+            client.phone === PERSONAL_BLOCK_PHONE)
+      ) ?? null;
+
+    let targetClient = findPersonalClient(clients);
+    let nextClients = clients;
+
+    if (!isSupabaseConfigured || !supabase || !session || !isOnline) {
+      if (!targetClient) {
+        const tempClientId = isSupabaseConfigured ? nextTempId() : Date.now();
+        targetClient = {
+          id: tempClientId,
+          name: title,
+          phone: PERSONAL_BLOCK_PHONE,
+          notes: `${PERSONAL_CLIENT_MARKER} Clienta interna pentru blocaje personale.`,
+          visits: 0,
+          lastVisit: "blocaj personal",
+        };
+        nextClients = [...clients, targetClient].sort((a, b) =>
+          a.name.localeCompare(b.name, "ro")
+        );
+        setClients(nextClients);
+        if (isSupabaseConfigured) {
+          enqueueOfflineOp({ type: "upsert_client", record: targetClient });
+        }
+      }
+
+      const personalAppointment: Appointment = {
+        id: isSupabaseConfigured ? nextTempId() - 1 : Date.now(),
+        clientId: targetClient.id,
+        clientName: targetClient.name,
+        service: PERSONAL_BLOCK_SERVICE,
+        date: personalBlockDate,
+        start: personalBlockTime,
+        duration: personalBlockDuration,
+        price: 0,
+        phone: targetClient.phone,
+        status: "Confirmata",
+        notes: `${PERSONAL_BLOCK_MARKER} ${title}`,
+      };
+      const nextAppointments = sortAppointmentsByDateTime([
+        ...appointments,
+        personalAppointment,
+      ]);
+      setAppointments(nextAppointments);
+      persistLocalState({ clients: nextClients, appointments: nextAppointments });
+      if (isSupabaseConfigured) {
+        enqueueOfflineOp({ type: "upsert_appointment", record: personalAppointment });
+      }
+      setToast({
+        text:
+          !isOnline && isSupabaseConfigured
+            ? "Blocaj salvat offline. Se sincronizeaza la reconectare."
+            : "Blocajul personal a fost adaugat.",
+        type: "success",
+      });
+      setIsSavingPersonalBlock(false);
+      return;
+    }
+
+    if (!targetClient) {
+      const { data, error } = await supabase
+        .from("clients")
+        .insert({
+          name: title,
+          phone: PERSONAL_BLOCK_PHONE,
+          notes: `${PERSONAL_CLIENT_MARKER} Clienta interna pentru blocaje personale.`,
+          visits: 0,
+          last_visit_label: "blocaj personal",
+        })
+        .select("*")
+        .single();
+
+      if (error || !data) {
+        setToast({ text: "Nu am putut crea clienta interna pentru blocaj.", type: "error" });
+        setIsSavingPersonalBlock(false);
+        return;
+      }
+
+      targetClient = mapClientRow(data as SupabaseClientRow);
+      nextClients = [...clients, targetClient].sort((a, b) =>
+        a.name.localeCompare(b.name, "ro")
+      );
+      setClients(nextClients);
+    }
+
+    const payloadBase = {
+      client_id: targetClient.id,
+      service: PERSONAL_BLOCK_SERVICE,
+      appointment_date: personalBlockDate,
+      start_time: personalBlockTime,
+      duration: personalBlockDuration,
+      price: 0,
+      status: "Confirmata",
+    };
+
+    const response = await supabase
+      .from("appointments")
+      .insert(
+        supportsAppointmentNotes
+          ? { ...payloadBase, notes: `${PERSONAL_BLOCK_MARKER} ${title}` }
+          : payloadBase
+      )
+      .select(
+        supportsAppointmentNotes
+          ? APPOINTMENT_SELECT_WITH_NOTES
+          : APPOINTMENT_SELECT_WITHOUT_NOTES
+      )
+      .single();
+
+    if (response.error) {
+      setToast({ text: "Nu am putut salva blocajul in Supabase.", type: "error" });
+      setIsSavingPersonalBlock(false);
+      return;
+    }
+
+    const row = supportsAppointmentNotes
+      ? (response.data as unknown as SupabaseAppointmentRow)
+      : ({ ...(response.data as object), notes: `${PERSONAL_BLOCK_MARKER} ${title}` } as SupabaseAppointmentRow);
+    const newAppointment = mapAppointmentRow(row);
+    setAppointments((current) => sortAppointmentsByDateTime([...current, newAppointment]));
+    setToast({ text: "Blocajul personal a fost adaugat.", type: "success" });
+    setIsSavingPersonalBlock(false);
+  };
+
   const startEditAppointment = (appointment: Appointment) => {
     setActiveTab("appointments");
     setActivePanel("appointment");
@@ -2943,6 +3181,13 @@ export default function Home() {
     return minutesToTime(Math.min(maxStart, Math.max(minStart, snapped)));
   };
 
+  const clearCalendarMoveHoldTimer = () => {
+    if (calendarMoveHoldTimerRef.current) {
+      window.clearTimeout(calendarMoveHoldTimerRef.current);
+      calendarMoveHoldTimerRef.current = null;
+    }
+  };
+
   const startCalendarPointerDrag = (
     event: PointerEvent<HTMLDivElement>,
     appointment: Appointment
@@ -2957,21 +3202,34 @@ export default function Home() {
     ) {
       return;
     }
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Some mobile browsers can reject capture if the pointer ended quickly.
-    }
+    clearCalendarMoveHoldTimer();
     const appointmentRect = event.currentTarget.getBoundingClientRect();
+    const targetElement = event.currentTarget;
+    const pointerId = event.pointerId;
     setCalendarPointerDrag({
       appointmentId: appointment.id,
-      pointerId: event.pointerId,
+      pointerId,
       originY: event.clientY,
       currentY: event.clientY,
       grabOffsetY: event.clientY - appointmentRect.top,
       active: false,
     });
-    setDraggingAppointmentId(appointment.id);
+    calendarMoveHoldTimerRef.current = window.setTimeout(() => {
+      try {
+        targetElement.setPointerCapture(pointerId);
+      } catch {
+        // Some mobile browsers can reject capture if the pointer ended quickly.
+      }
+      setDraggingAppointmentId(appointment.id);
+      setCalendarPointerDrag((current) =>
+        current &&
+        current.pointerId === pointerId &&
+        current.appointmentId === appointment.id
+          ? { ...current, active: true }
+          : current
+      );
+      calendarMoveHoldTimerRef.current = null;
+    }, CALENDAR_MOVE_HOLD_MS);
     setMovingAppointmentId(null);
   };
 
@@ -2986,17 +3244,20 @@ export default function Home() {
     ) {
       return;
     }
-    const active =
-      calendarPointerDrag.active ||
-      Math.abs(event.clientY - calendarPointerDrag.originY) > 6;
-    if (active) {
+    const movement = Math.abs(event.clientY - calendarPointerDrag.originY);
+    if (!calendarPointerDrag.active && movement > 12) {
+      clearCalendarMoveHoldTimer();
+      setCalendarPointerDrag(null);
+      return;
+    }
+    if (calendarPointerDrag.active) {
       event.preventDefault();
     }
     setCalendarPointerDrag((current) =>
       current &&
       current.pointerId === event.pointerId &&
       current.appointmentId === appointment.id
-        ? { ...current, currentY: event.clientY, active }
+        ? { ...current, currentY: event.clientY }
         : current
     );
   };
@@ -3012,12 +3273,11 @@ export default function Home() {
     ) {
       return;
     }
+    clearCalendarMoveHoldTimer();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    const wasActive =
-      calendarPointerDrag.active ||
-      Math.abs(event.clientY - calendarPointerDrag.originY) > 6;
+    const wasActive = calendarPointerDrag.active;
     setCalendarPointerDrag(null);
     setDraggingAppointmentId(null);
     setDragTargetKey("");
@@ -3033,6 +3293,7 @@ export default function Home() {
 
   const cancelCalendarPointerDrag = (event: PointerEvent<HTMLDivElement>) => {
     if (calendarPointerDrag?.pointerId === event.pointerId) {
+      clearCalendarMoveHoldTimer();
       setCalendarPointerDrag(null);
       setDraggingAppointmentId(null);
       setDragTargetKey("");
@@ -3137,7 +3398,7 @@ export default function Home() {
 
     const shouldActivate =
       calendarCreateDrag.active ||
-      (Date.now() - calendarCreateDrag.startedAt > 220 &&
+      (Date.now() - calendarCreateDrag.startedAt > CALENDAR_CREATE_HOLD_MS &&
         Math.abs(event.clientY - calendarCreateDrag.originY) > 6);
 
     if (shouldActivate) {
@@ -3168,7 +3429,7 @@ export default function Home() {
 
     const wasActive =
       calendarCreateDrag.active ||
-      (Date.now() - calendarCreateDrag.startedAt > 220 &&
+      (Date.now() - calendarCreateDrag.startedAt > CALENDAR_CREATE_HOLD_MS &&
         Math.abs(event.clientY - calendarCreateDrag.originY) > 6);
     const endMinutes = getTimelineMinuteFromClientY(event.clientY);
     let startMinutes = Math.min(calendarCreateDrag.startMinutes, endMinutes);
@@ -4090,7 +4351,7 @@ export default function Home() {
                     {appointmentsForDayAll.length} programari
                   </p>
                   <p className="mt-0.5 text-[11px] text-[#a8a8ad]">
-                    Tine apasat pe liber si trage pentru programare noua.
+                    Scroll normal. Tine apasat pe card ca sa muti sau pe liber ca sa creezi.
                   </p>
                 </div>
                 <p className="text-xs text-[#a8a8ad]">
@@ -4227,12 +4488,13 @@ export default function Home() {
                     const isMoving =
                       movingAppointmentId === appointment.id ||
                       draggingAppointmentId === appointment.id ||
-                      calendarPointerDrag?.appointmentId === appointment.id;
+                      (calendarPointerDrag?.appointmentId === appointment.id &&
+                        calendarPointerDrag.active);
                     return (
                       <div
                         key={`calendar-block-${appointment.id}`}
                         data-calendar-appointment
-                        className={`absolute left-[76px] right-3 touch-none select-none overflow-hidden rounded-[8px] border px-3 py-2 shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
+                        className={`absolute left-[76px] right-3 select-none overflow-hidden rounded-[8px] border px-3 py-2 shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
                           isMoving ? "z-20 ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
                         }`}
                         draggable={false}
@@ -4241,7 +4503,11 @@ export default function Home() {
                         onPointerDown={(event) => startCalendarPointerDrag(event, appointment)}
                         onPointerMove={(event) => updateCalendarPointerDrag(event, appointment)}
                         onPointerUp={(event) => void finishCalendarPointerDrag(event, appointment)}
-                        style={{ top: `${top}px`, height: `${height}px` }}
+                        style={{
+                          top: `${top}px`,
+                          height: `${height}px`,
+                          touchAction: isMoving ? "none" : "pan-y",
+                        }}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
@@ -5183,6 +5449,141 @@ export default function Home() {
               {lastBackupPath ? (
                 <p className="mt-2 text-xs text-muted">Ultimul backup: {lastBackupPath}</p>
               ) : null}
+            </div>
+
+            <div className="gold-ring mb-4 rounded-[8px] border border-line bg-[#181511] px-4 py-4">
+              <p className="text-sm font-semibold">Blocaje personale</p>
+              <p className="mt-2 text-sm text-[#ddd4c5]">
+                Pentru Eu gene, Eu par, Eu unghii sau alte lucruri personale. Ocupa loc in calendar, dar nu pune venit.
+              </p>
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                {PERSONAL_BLOCK_PRESETS.map((preset) => (
+                  <button
+                    className={`shrink-0 rounded-[8px] border px-3 py-2 text-xs font-semibold ${
+                      personalBlockTitle === preset
+                        ? "border-gold bg-gold text-black"
+                        : "border-[#3f3522] bg-black/70 text-[#ddd4c5]"
+                    }`}
+                    key={preset}
+                    onClick={() => setPersonalBlockTitle(preset)}
+                    type="button"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 grid gap-3">
+                <label className="grid gap-2 text-sm">
+                  <span className="text-muted">Nume blocaj</span>
+                  <input
+                    className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
+                    onChange={(event) => setPersonalBlockTitle(event.target.value)}
+                    placeholder="Eu gene"
+                    value={personalBlockTitle}
+                  />
+                </label>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+                  <label className="grid min-w-0 gap-2 text-sm">
+                    <span className="text-muted">Data</span>
+                    <input
+                      className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
+                      onChange={(event) => setPersonalBlockDate(event.target.value)}
+                      type="date"
+                      value={personalBlockDate}
+                    />
+                  </label>
+                  <label className="grid min-w-0 gap-2 text-sm">
+                    <span className="text-muted">Ora</span>
+                    <input
+                      className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
+                      onChange={(event) => setPersonalBlockTime(event.target.value)}
+                      type="time"
+                      value={personalBlockTime}
+                    />
+                  </label>
+                </div>
+                <label className="grid gap-2 text-sm">
+                  <span className="text-muted">Durata</span>
+                  <input
+                    className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
+                    onChange={(event) => setPersonalBlockDuration(event.target.value)}
+                    placeholder="1h30min"
+                    value={personalBlockDuration}
+                  />
+                </label>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {QUICK_DURATIONS.map((duration) => (
+                    <button
+                      className={`shrink-0 rounded-[8px] border px-3 py-2 text-xs font-semibold ${
+                        personalBlockDuration === duration
+                          ? "border-gold bg-gold text-black"
+                          : "border-[#3f3522] bg-black/70 text-[#ddd4c5]"
+                      }`}
+                      key={`personal-${duration}`}
+                      onClick={() => setPersonalBlockDuration(duration)}
+                      type="button"
+                    >
+                      {duration}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                  disabled={isSavingPersonalBlock}
+                  onClick={() => void handleSavePersonalBlock()}
+                  type="button"
+                >
+                  {isSavingPersonalBlock ? "Se salveaza..." : "Adauga blocaj in calendar"}
+                </button>
+              </div>
+
+              {personalBlocks.length > 0 ? (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs uppercase text-muted">Blocaje existente</p>
+                  {personalBlocks.slice(-6).reverse().map((block) => (
+                    <div
+                      className="flex items-center justify-between gap-3 rounded-[8px] border border-[#3f3522] bg-black/60 px-3 py-2"
+                      key={block.id}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{block.clientName}</p>
+                        <p className="mt-1 text-xs text-muted">
+                          {formatShortDate(block.date)} • {block.start} • {block.duration}
+                        </p>
+                      </div>
+                      <button
+                        className="shrink-0 rounded-[8px] border border-[#7a3131] bg-[#3a1515] px-3 py-2 text-xs font-semibold text-[#ffd1d1]"
+                        onClick={() => void handleDeleteAppointment(block.id)}
+                        type="button"
+                      >
+                        Sterge
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <p className="text-sm font-semibold">Mesaj WhatsApp</p>
+              <p className="mt-2 text-sm text-[#ddd4c5]">
+                Textul folosit la butonul Confirma pe WhatsApp.
+              </p>
+              <textarea
+                className="mt-3 min-h-[132px] w-full rounded-[8px] border border-line bg-black px-3 py-3 text-sm outline-none focus:border-gold"
+                onChange={(event) => setWhatsappTemplate(event.target.value)}
+                value={whatsappTemplate}
+              />
+              <p className="mt-2 text-xs text-muted">
+                Variabile: {"{clienta}"}, {"{data}"}, {"{data_scurta}"}, {"{ora}"}, {"{serviciu}"}, {"{durata}"}, {"{pret}"}.
+              </p>
+              <button
+                className="mt-3 rounded-[8px] border border-line bg-panel px-4 py-3 text-sm font-medium"
+                onClick={() => setWhatsappTemplate(DEFAULT_WHATSAPP_TEMPLATE)}
+                type="button"
+              >
+                Reseteaza mesajul
+              </button>
             </div>
 
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-[#181511] px-4 py-4">
