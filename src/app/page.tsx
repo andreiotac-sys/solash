@@ -381,33 +381,24 @@ const renderWhatsAppTemplate = (template: string, appointment: Appointment) => {
   );
 };
 
-const statusBadgeClass = (status: string) => {
-  if (status === "Confirmata") {
-    return "bg-[#0f3b2b] text-[#a7f3d0]";
-  }
-  if (status === "Noua") {
-    return "bg-[#3f3317] text-[#f7d998]";
-  }
-  if (status === "Reminder maine") {
-    return "bg-[#2d2946] text-[#d7c7ff]";
-  }
-  if (status === "Finalizata") {
-    return "bg-[#183247] text-[#b6e3ff]";
-  }
-  if (status === "Anulata") {
-    return "bg-[#4a1f1f] text-[#ffc7c7]";
-  }
-  return "bg-black text-gold";
-};
+const ACTIVE_APPOINTMENT_STATUS = "Programata";
+const CANCELLED_APPOINTMENT_STATUS = "Anulata";
 
-const statusShortLabel = (status: string) => {
-  if (status === "Confirmata") return "✓ Confirmata";
-  if (status === "Noua") return "• Noua";
-  if (status === "Reminder maine") return "⏰ Reminder";
-  if (status === "Finalizata") return "✔ Finalizata";
-  if (status === "Anulata") return "✕ Anulata";
-  return status;
-};
+const isCancelledStatus = (status: string) => status === CANCELLED_APPOINTMENT_STATUS;
+
+const isCancelledAppointment = (appointment: Appointment) =>
+  isCancelledStatus(appointment.status);
+
+const normalizedAppointmentStatus = (status: string) =>
+  isCancelledStatus(status) ? CANCELLED_APPOINTMENT_STATUS : ACTIVE_APPOINTMENT_STATUS;
+
+const statusBadgeClass = (status: string) =>
+  isCancelledStatus(status)
+    ? "bg-[#4a1f1f] text-[#ffc7c7]"
+    : "bg-[#14382a] text-[#b8ffd9]";
+
+const statusShortLabel = (status: string) =>
+  isCancelledStatus(status) ? "Anulata" : ACTIVE_APPOINTMENT_STATUS;
 
 const defaultSchedule = () =>
   WEEK_DAYS.reduce<Record<number, DayBusinessSettings>>((acc, day) => {
@@ -652,7 +643,7 @@ export default function Home() {
     baseServices[0]?.duration ?? "2h"
   );
   const [appointmentPrice, setAppointmentPrice] = useState(baseServices[0]?.price ?? 0);
-  const [appointmentStatus, setAppointmentStatus] = useState("Noua");
+  const [appointmentStatus, setAppointmentStatus] = useState(ACTIVE_APPOINTMENT_STATUS);
   const [appointmentNotes, setAppointmentNotes] = useState("");
   const [editingAppointmentId, setEditingAppointmentId] = useState<number | null>(null);
   const [clientName, setClientName] = useState("");
@@ -675,7 +666,6 @@ export default function Home() {
   const [appointmentHistoryOpen, setAppointmentHistoryOpen] = useState(false);
   const [appointmentHistorySearch, setAppointmentHistorySearch] = useState("");
   const [appointmentHistoryClientId, setAppointmentHistoryClientId] = useState<number | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("toate");
   const [selectedMonth, setSelectedMonth] = useState(() => todayIso().slice(0, 7));
   const [reportMonth, setReportMonth] = useState(() => todayIso().slice(0, 7));
   const [scrollToEditorTick, setScrollToEditorTick] = useState(0);
@@ -1011,27 +1001,17 @@ export default function Home() {
 
   const appointmentsForSelectedDate = useMemo(() => {
     const list = appointments.filter((appointment) => appointment.date === appointmentDate);
-    const filtered =
-      statusFilter === "toate"
-        ? list
-        : statusFilter === "neconfirmate"
-          ? list.filter(
-              (appointment) =>
-                appointment.status === "Noua" ||
-                appointment.status === "Reminder maine"
-            )
-        : list.filter((appointment) => appointment.status === statusFilter);
     const term = appointmentSearch.trim().toLowerCase();
     const bySearch = !term
-      ? filtered
-      : filtered.filter(
+      ? list
+      : list.filter(
           (appointment) =>
             appointment.clientName.toLowerCase().includes(term) ||
             appointment.service.toLowerCase().includes(term) ||
             appointment.phone.toLowerCase().includes(term)
         );
     return bySearch.sort((a, b) => a.start.localeCompare(b.start));
-  }, [appointmentDate, appointments, statusFilter, appointmentSearch]);
+  }, [appointmentDate, appointments, appointmentSearch]);
 
   const mostUsedServiceId = useMemo(() => {
     const usage = new Map<number, number>();
@@ -1066,7 +1046,7 @@ export default function Home() {
 
   const dayTimeline = useMemo(() => {
     const active = appointmentsForDayAll.filter(
-      (appointment) => appointment.status !== "Anulata"
+      (appointment) => !isCancelledAppointment(appointment)
     );
     const segments: Array<
       | { kind: "free"; start: number; end: number; minutes: number }
@@ -1170,7 +1150,10 @@ export default function Home() {
       if (windows.length === 0) continue;
 
       const busySegments = appointments
-        .filter((appointment) => appointment.date === isoDate && appointment.status !== "Anulata")
+        .filter(
+          (appointment) =>
+            appointment.date === isoDate && !isCancelledAppointment(appointment)
+        )
         .map((appointment) => {
           const start = timeToMinutes(appointment.start);
           const end = start + parseDurationToMinutes(appointment.duration);
@@ -1242,7 +1225,7 @@ export default function Home() {
   const calendarDayStats = useMemo(() => {
     const stats = new Map<string, { count: number; busyMinutes: number }>();
     for (const appointment of appointments) {
-      if (appointment.status === "Anulata") {
+      if (isCancelledAppointment(appointment)) {
         continue;
       }
       const windows = getWorkWindowsForDate(appointment.date, businessSettings);
@@ -1281,14 +1264,16 @@ export default function Home() {
 
   const calendarTimeline = useMemo(() => {
     const activeAppointments = appointmentsForDayAll.filter(
-      (appointment) => appointment.status !== "Anulata"
+      (appointment) => !isCancelledAppointment(appointment)
     );
+    const cancelledAppointments = appointmentsForDayAll.filter(isCancelledAppointment);
     const windowStarts = workWindowsForSelectedDate.map((windowRange) => windowRange.start);
     const windowEnds = workWindowsForSelectedDate.map((windowRange) => windowRange.end);
-    const appointmentStarts = activeAppointments.map((appointment) =>
+    const visibleAppointments = appointmentsForDayAll;
+    const appointmentStarts = visibleAppointments.map((appointment) =>
       timeToMinutes(appointment.start)
     );
-    const appointmentEnds = activeAppointments.map((appointment) => {
+    const appointmentEnds = visibleAppointments.map((appointment) => {
       const start = timeToMinutes(appointment.start);
       return start + parseDurationToMinutes(appointment.duration);
     });
@@ -1314,6 +1299,7 @@ export default function Home() {
     ).filter((minute) => minute < rangeEnd && minute % 60 !== 0);
     return {
       appointments: activeAppointments,
+      cancelledAppointments,
       rangeStart,
       rangeEnd,
       hourMarks,
@@ -1350,14 +1336,18 @@ export default function Home() {
     const allAppointments = appointments
       .filter((appointment) => appointment.date >= "2023-01-01")
       .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
-    const allNonCancelled = allAppointments.filter((appointment) => appointment.status !== "Anulata");
+    const allNonCancelled = allAppointments.filter(
+      (appointment) => !isCancelledAppointment(appointment)
+    );
 
     const allRevenue = allNonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
     const allUniqueClients = new Set(allNonCancelled.map((appointment) => appointment.clientId)).size;
     const allAvgTicket = allNonCancelled.length > 0 ? Math.round(allRevenue / allNonCancelled.length) : 0;
 
     const yearAppointments = allAppointments.filter((appointment) => appointment.date.startsWith(`${reportYear}-`));
-    const yearNonCancelled = yearAppointments.filter((appointment) => appointment.status !== "Anulata");
+    const yearNonCancelled = yearAppointments.filter(
+      (appointment) => !isCancelledAppointment(appointment)
+    );
     const yearRevenue = yearNonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
     const yearUniqueClients = new Set(yearNonCancelled.map((appointment) => appointment.clientId)).size;
     const yearAvgTicket = yearNonCancelled.length > 0 ? Math.round(yearRevenue / yearNonCancelled.length) : 0;
@@ -1366,7 +1356,9 @@ export default function Home() {
       .filter((appointment) => toMonthKey(appointment.date) === reportMonth)
       .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
 
-    const nonCancelled = monthAppointments.filter((appointment) => appointment.status !== "Anulata");
+    const nonCancelled = monthAppointments.filter(
+      (appointment) => !isCancelledAppointment(appointment)
+    );
     const totalRevenue = nonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
     const uniqueClients = new Set(nonCancelled.map((appointment) => appointment.clientId)).size;
     const avgTicket = nonCancelled.length > 0 ? Math.round(totalRevenue / nonCancelled.length) : 0;
@@ -1376,7 +1368,8 @@ export default function Home() {
 
     const statusMap = new Map<string, number>();
     for (const appointment of monthAppointments) {
-      statusMap.set(appointment.status, (statusMap.get(appointment.status) ?? 0) + 1);
+      const status = normalizedAppointmentStatus(appointment.status);
+      statusMap.set(status, (statusMap.get(status) ?? 0) + 1);
     }
 
     const serviceMap = new Map<string, { count: number; revenue: number }>();
@@ -1511,11 +1504,11 @@ export default function Home() {
 
     const today = todayIso();
     const todayAppointments = allAppointments.filter((appointment) => appointment.date === today);
-    const todayNonCancelled = todayAppointments.filter((appointment) => appointment.status !== "Anulata");
+    const todayNonCancelled = todayAppointments.filter(
+      (appointment) => !isCancelledAppointment(appointment)
+    );
     const todayRevenue = todayNonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
-    const todayPendingConfirmations = todayAppointments.filter(
-      (appointment) => appointment.status === "Noua" || appointment.status === "Reminder maine"
-    ).length;
+    const todayPendingConfirmations = todayNonCancelled.length;
 
     return {
       allAppointments,
@@ -1550,20 +1543,20 @@ export default function Home() {
   }, [appointments, reportMonth, reportYear]);
 
   const dailyRevenue = appointmentsForSelectedDate
-    .filter((appointment) => appointment.status !== "Anulata")
+    .filter((appointment) => !isCancelledAppointment(appointment))
     .reduce((sum, appointment) => sum + appointment.price, 0);
 
   const weeklyRevenue = appointments
     .filter(
       (appointment) =>
-        appointment.status !== "Anulata" && toWeekKey(appointment.date) === currentWeekKey
+        !isCancelledAppointment(appointment) && toWeekKey(appointment.date) === currentWeekKey
     )
     .reduce((sum, appointment) => sum + appointment.price, 0);
 
   const monthlyRevenue = appointments
     .filter(
       (appointment) =>
-        appointment.status !== "Anulata" && toMonthKey(appointment.date) === currentMonthKey
+        !isCancelledAppointment(appointment) && toMonthKey(appointment.date) === currentMonthKey
     )
     .reduce((sum, appointment) => sum + appointment.price, 0);
 
@@ -1580,8 +1573,7 @@ export default function Home() {
   const reminderCount = appointments.filter(
     (appointment) =>
       appointment.date === reminderDate &&
-      appointment.status !== "Anulata" &&
-      appointment.status !== "Finalizata"
+      !isCancelledAppointment(appointment)
   ).length;
 
   const nextUpcomingAppointment = useMemo(() => {
@@ -1591,7 +1583,7 @@ export default function Home() {
     return [...appointments]
       .filter(
         (appointment) =>
-          appointment.status !== "Anulata" &&
+          !isCancelledAppointment(appointment) &&
           (appointment.date > currentDate ||
             (appointment.date === currentDate && appointment.start >= currentTime))
       )
@@ -1610,7 +1602,7 @@ export default function Home() {
     const currentTime = `${`${now.getHours()}`.padStart(2, "0")}:${`${now.getMinutes()}`.padStart(2, "0")}`;
 
     const baseFilter = (appointment: Appointment) =>
-      appointment.status !== "Anulata" && appointment.status !== "Finalizata";
+      !isCancelledAppointment(appointment);
 
     const todayList = appointments
       .filter(
@@ -1631,11 +1623,15 @@ export default function Home() {
   }, [appointments]);
 
   const clientActivityById = useMemo(() => {
-    const map = new Map<number, { visits: number; lastVisit: string }>();
+    const map = new Map<number, { visits: number; lastVisit: string; cancellations: number }>();
     const today = todayIso();
 
     for (const client of clients) {
-      map.set(client.id, { visits: client.visits, lastVisit: client.lastVisit });
+      map.set(client.id, {
+        visits: client.visits,
+        lastVisit: client.lastVisit,
+        cancellations: 0,
+      });
     }
 
     for (const client of clients) {
@@ -1643,9 +1639,14 @@ export default function Home() {
         .filter(
           (appointment) =>
             appointment.clientId === client.id &&
-            appointment.status !== "Anulata"
+            !isCancelledAppointment(appointment)
         )
         .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
+
+      const cancellations = appointments.filter(
+        (appointment) =>
+          appointment.clientId === client.id && isCancelledAppointment(appointment)
+      ).length;
 
       if (relatedAppointments.length > 0) {
         const pastAppointments = relatedAppointments.filter((appointment) => appointment.date <= today);
@@ -1658,6 +1659,13 @@ export default function Home() {
         map.set(client.id, {
           visits: relatedAppointments.length,
           lastVisit: lastVisitLabel,
+          cancellations,
+        });
+      } else if (cancellations > 0) {
+        map.set(client.id, {
+          visits: client.visits,
+          lastVisit: client.lastVisit,
+          cancellations,
         });
       }
     }
@@ -1725,8 +1733,7 @@ export default function Home() {
     return appointments
       .filter(
         (appointment) =>
-          appointment.clientId === appointmentHistoryClient.id &&
-          appointment.status !== "Anulata"
+          appointment.clientId === appointmentHistoryClient.id
       )
       .sort((a, b) =>
         a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)
@@ -2022,7 +2029,7 @@ export default function Home() {
     setAppointmentDate(todayIso());
     setAppointmentDuration(source?.duration ?? "2h");
     setAppointmentPrice(source?.price ?? 0);
-    setAppointmentStatus("Noua");
+    setAppointmentStatus(ACTIVE_APPOINTMENT_STATUS);
     setAppointmentNotes("");
     setAppointmentClientFilter("");
   };
@@ -2107,6 +2114,9 @@ export default function Home() {
       if (id && appointment.id === id) {
         return false;
       }
+      if (isCancelledAppointment(appointment)) {
+        return false;
+      }
       const start = toMinutes(appointment.start);
       const end = start + parseDurationToMinutes(appointment.duration);
       return newStartMin < end && newEndMin > start;
@@ -2136,7 +2146,7 @@ export default function Home() {
         (appointment) =>
           appointment.clientId === selectedClient.id &&
           appointment.id !== editingAppointmentId &&
-          appointment.status !== "Anulata"
+          !isCancelledAppointment(appointment)
       )
       .sort((a, b) =>
         a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)
@@ -2325,10 +2335,6 @@ export default function Home() {
       "_blank",
       "noopener,noreferrer"
     );
-
-    if (appointment.status !== "Confirmata") {
-      await handleUpdateStatus(appointment.id, "Confirmata");
-    }
   };
 
   const handleTestPush = async () => {
@@ -2996,7 +3002,7 @@ export default function Home() {
         duration: personalBlockDuration,
         price: 0,
         phone: targetClient.phone,
-        status: "Confirmata",
+        status: ACTIVE_APPOINTMENT_STATUS,
         notes: `${PERSONAL_BLOCK_MARKER} ${title}`,
       };
       const nextAppointments = sortAppointmentsByDateTime([
@@ -3052,7 +3058,7 @@ export default function Home() {
       start_time: personalBlockTime,
       duration: personalBlockDuration,
       price: 0,
-      status: "Confirmata",
+      status: ACTIVE_APPOINTMENT_STATUS,
     };
 
     const response = await supabase
@@ -3095,7 +3101,7 @@ export default function Home() {
     setAppointmentTime(appointment.start);
     setAppointmentDuration(appointment.duration);
     setAppointmentPrice(appointment.price);
-    setAppointmentStatus(appointment.status);
+    setAppointmentStatus(normalizedAppointmentStatus(appointment.status));
     setAppointmentNotes(appointment.notes);
     setAppointmentClientFilter("");
     setScrollToEditorTick((value) => value + 1);
@@ -3437,7 +3443,7 @@ export default function Home() {
       setSelectedServiceId(service.id);
       setAppointmentPrice(service.price);
     }
-    setAppointmentStatus("Noua");
+    setAppointmentStatus(ACTIVE_APPOINTMENT_STATUS);
     setAppointmentNotes("");
     setAppointmentClientFilter("");
     setScrollToEditorTick((value) => value + 1);
@@ -3583,9 +3589,10 @@ export default function Home() {
   };
 
   const handleUpdateStatus = async (id: number, status: string) => {
+    const nextStatus = normalizedAppointmentStatus(status);
     if (!isSupabaseConfigured || !supabase || !session || !isOnline || id < 0) {
       const next = appointments.map((appointment) =>
-        appointment.id === id ? { ...appointment, status } : appointment
+        appointment.id === id ? { ...appointment, status: nextStatus } : appointment
       );
       setAppointments(next);
       persistLocalState({ appointments: next });
@@ -3598,8 +3605,8 @@ export default function Home() {
       setToast({
         text:
           !isOnline && isSupabaseConfigured
-            ? `Status schimbat offline (${status}). Se sincronizeaza la reconectare.`
-            : `Status schimbat in ${status}.`,
+            ? `Programare actualizata offline (${nextStatus}). Se sincronizeaza la reconectare.`
+            : `Programarea este acum ${nextStatus.toLowerCase()}.`,
         type: "success",
       });
       return;
@@ -3607,7 +3614,7 @@ export default function Home() {
 
     const { error } = await supabase
       .from("appointments")
-      .update({ status })
+      .update({ status: nextStatus })
       .eq("id", id);
     if (error) {
       setToast({ text: "Nu am putut actualiza statusul.", type: "error" });
@@ -3616,10 +3623,10 @@ export default function Home() {
 
     setAppointments((current) =>
       current.map((appointment) =>
-        appointment.id === id ? { ...appointment, status } : appointment
+        appointment.id === id ? { ...appointment, status: nextStatus } : appointment
       )
     );
-    setToast({ text: `Status schimbat in ${status}.`, type: "success" });
+    setToast({ text: `Programarea este acum ${nextStatus.toLowerCase()}.`, type: "success" });
   };
 
   const handleShiftAppointmentMinutes = async (appointment: Appointment, minutes: number) => {
@@ -4271,7 +4278,7 @@ export default function Home() {
                                 </p>
                               </div>
                               <p className={`mt-1 text-xs ${serviceColors.meta}`}>
-                                {segment.appointment.service} • {segment.appointment.status}
+                                {segment.appointment.service} • {statusShortLabel(segment.appointment.status)}
                               </p>
                               <div className="mt-2 flex gap-2">
                                 <button
@@ -4560,6 +4567,39 @@ export default function Home() {
                       })()
                     : null}
 
+                  {calendarTimeline.cancelledAppointments.map((appointment) => {
+                    const start = timeToMinutes(appointment.start);
+                    const end = start + parseDurationToMinutes(appointment.duration);
+                    const top =
+                      ((start - calendarTimeline.rangeStart) / 60) * CALENDAR_HOUR_HEIGHT;
+                    const height = Math.max(
+                      30,
+                      ((end - start) / 60) * CALENDAR_HOUR_HEIGHT - 4
+                    );
+                    return (
+                      <div
+                        key={`calendar-cancelled-${appointment.id}`}
+                        data-calendar-appointment
+                        className="pointer-events-none absolute left-[76px] right-3 z-[1] overflow-hidden rounded-[8px] border border-[#7a3131]/80 bg-[#2a1515]/85 px-3 py-2 opacity-90 shadow-sm"
+                        style={{ top: `${top}px`, height: `${height}px` }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-[#ffd1d1]">
+                              {appointment.clientName}
+                            </p>
+                            <p className="mt-0.5 truncate text-xs text-[#f0aaa5]">
+                              Anulata • {appointment.service}
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-xs text-[#f0aaa5]">
+                            {appointment.start}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+
                   {calendarTimeline.appointments.map((appointment) => {
                     const serviceColors = serviceColorClasses(appointment.service);
                     const start = timeToMinutes(appointment.start);
@@ -4650,7 +4690,8 @@ export default function Home() {
                     );
                   })}
 
-                  {calendarTimeline.appointments.length === 0 ? (
+                  {calendarTimeline.appointments.length === 0 &&
+                  calendarTimeline.cancelledAppointments.length === 0 ? (
                     <div className="absolute left-[76px] right-3 top-8 rounded-[8px] border border-line bg-[#18191b] px-3 py-3 text-sm text-muted">
                       Zi libera.
                     </div>
@@ -4852,17 +4893,16 @@ export default function Home() {
                     </div>
 
                     <label className="grid min-w-0 gap-2 text-sm">
-                      <span className="text-muted">Status</span>
+                      <span className="text-muted">Tip programare</span>
                       <select
                         className="w-full max-w-full rounded-[8px] border border-[#3f3522] bg-black/90 px-3 py-3 outline-none focus:border-gold"
-                        onChange={(event) => setAppointmentStatus(event.target.value)}
+                        onChange={(event) =>
+                          setAppointmentStatus(normalizedAppointmentStatus(event.target.value))
+                        }
                         value={appointmentStatus}
                       >
-                        <option>Noua</option>
-                        <option>Confirmata</option>
-                        <option>Reminder maine</option>
-                        <option>Finalizata</option>
-                        <option>Anulata</option>
+                        <option value={ACTIVE_APPOINTMENT_STATUS}>Programata</option>
+                        <option value={CANCELLED_APPOINTMENT_STATUS}>Anulata</option>
                       </select>
                     </label>
 
@@ -5116,29 +5156,6 @@ export default function Home() {
                 </div>
               ) : null}
 
-              <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-                {["toate", "neconfirmate", "Noua", "Confirmata", "Reminder maine", "Finalizata", "Anulata"].map(
-                  (status) => (
-                    <button
-                      key={status}
-                      className={`rounded-[8px] border px-3 py-2 text-sm whitespace-nowrap ${
-                        statusFilter === status
-                          ? "border-gold bg-gold text-black"
-                          : "border-line bg-panel text-muted"
-                      }`}
-                      onClick={() => setStatusFilter(status)}
-                      type="button"
-                    >
-                      {status === "toate"
-                        ? "Toate"
-                        : status === "neconfirmate"
-                          ? "Neconfirmate"
-                          : status}
-                    </button>
-                  )
-                )}
-              </div>
-
               <label className="mb-3 grid gap-2 text-sm">
                 <span className="text-muted">Cauta in programarile zilei</span>
                 <input
@@ -5313,29 +5330,26 @@ export default function Home() {
                         Editeaza
                       </button>
                       <button
-                        className="rounded-[8px] bg-[#1f1f1f] px-3 py-3 text-sm font-medium text-foreground"
+                        className={`rounded-[8px] px-3 py-3 text-sm font-medium ${
+                          isCancelledAppointment(appointment)
+                            ? "bg-[#14382a] text-[#b8ffd9]"
+                            : "bg-[#4a1f1f] text-[#ffc7c7]"
+                        }`}
                         onClick={() =>
                           void handleUpdateStatus(
                             appointment.id,
-                            appointment.status === "Confirmata" ? "Noua" : "Confirmata"
+                            isCancelledAppointment(appointment)
+                              ? ACTIVE_APPOINTMENT_STATUS
+                              : CANCELLED_APPOINTMENT_STATUS
                           )
                         }
                         type="button"
                       >
-                        {appointment.status === "Confirmata"
-                          ? "Reseteaza status"
-                          : "Marcheaza confirmata"}
+                        {isCancelledAppointment(appointment) ? "Reactiveaza" : "Anuleaza"}
                       </button>
                     </div>
 
-                    <div className="mt-2 grid grid-cols-3 gap-2">
-                      <button
-                        className="rounded-[8px] border border-line bg-panel px-3 py-2 text-xs font-medium"
-                        onClick={() => void handleUpdateStatus(appointment.id, "Finalizata")}
-                        type="button"
-                      >
-                        Finalizeaza
-                      </button>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
                       <button
                         className="rounded-[8px] border border-line bg-panel px-3 py-2 text-xs font-medium"
                         onClick={() => void handleShiftAppointmentMinutes(appointment, 15)}
@@ -5358,7 +5372,7 @@ export default function Home() {
                         onClick={() => void handleWhatsAppConfirm(appointment)}
                         type="button"
                       >
-                        Confirma pe WhatsApp
+                        Trimite WhatsApp
                       </button>
                       <a
                         className="rounded-[8px] bg-[#1f1f1f] px-3 py-3 text-center text-sm font-medium text-foreground"
@@ -5409,6 +5423,7 @@ export default function Home() {
                 const activity = clientActivityById.get(client.id);
                 const visits = activity?.visits ?? client.visits;
                 const lastVisit = activity?.lastVisit ?? client.lastVisit;
+                const cancellations = activity?.cancellations ?? 0;
                 return (
                   <article
                     key={client.id}
@@ -5419,6 +5434,7 @@ export default function Home() {
                         <p className="font-semibold">{client.name}</p>
                         <p className="mt-1 text-sm text-muted">
                           {visits === 0 ? "fara vizite" : `${visits} vizite`}
+                          {cancellations > 0 ? ` • ${cancellations} anulari` : ""}
                         </p>
                       </div>
                       <div className="text-right">
@@ -5521,14 +5537,20 @@ export default function Home() {
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Status programari (luna)</p>
+              <p className="text-sm font-semibold">Programari luna</p>
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                {["Noua", "Confirmata", "Reminder maine", "Finalizata", "Anulata"].map((status) => (
-                  <div key={status} className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
-                    <p className="text-xs text-muted">{status}</p>
-                    <p className="mt-1 font-semibold">{reportData.statusMap.get(status) ?? 0}</p>
-                  </div>
-                ))}
+                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                  <p className="text-xs text-muted">Programate</p>
+                  <p className="mt-1 font-semibold">
+                    {reportData.statusMap.get(ACTIVE_APPOINTMENT_STATUS) ?? 0}
+                  </p>
+                </div>
+                <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
+                  <p className="text-xs text-muted">Anulate</p>
+                  <p className="mt-1 font-semibold text-[#ffc7c7]">
+                    {reportData.statusMap.get(CANCELLED_APPOINTMENT_STATUS) ?? 0}
+                  </p>
+                </div>
               </div>
             </div>
 
