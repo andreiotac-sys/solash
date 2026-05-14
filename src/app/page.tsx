@@ -102,6 +102,7 @@ type CalendarCreateDrag = {
   pointerId: number;
   originY: number;
   currentY: number;
+  lastY: number;
   startMinutes: number;
   startedAt: number;
   active: boolean;
@@ -3406,12 +3407,20 @@ export default function Home() {
       return;
     }
 
+    event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is best-effort on mobile browsers.
+    }
+
     setMovingAppointmentId(null);
     setDraggingAppointmentId(null);
     setCalendarCreateDrag({
       pointerId: event.pointerId,
       originY: event.clientY,
       currentY: event.clientY,
+      lastY: event.clientY,
       startMinutes: getTimelineMinuteFromClientY(event.clientY),
       startedAt: Date.now(),
       active: false,
@@ -3428,20 +3437,23 @@ export default function Home() {
       (Date.now() - calendarCreateDrag.startedAt > CALENDAR_CREATE_HOLD_MS &&
         Math.abs(event.clientY - calendarCreateDrag.originY) > 6);
 
-    if (shouldActivate) {
-      event.preventDefault();
-      if (!calendarCreateDrag.active) {
-        try {
-          event.currentTarget.setPointerCapture(event.pointerId);
-        } catch {
-          // Pointer capture is best-effort on mobile browsers.
-        }
+    event.preventDefault();
+
+    if (!shouldActivate && Math.abs(event.clientY - calendarCreateDrag.originY) > 4) {
+      const scrollContainer = calendarTimelineRef.current?.parentElement;
+      if (scrollContainer) {
+        scrollContainer.scrollTop += calendarCreateDrag.lastY - event.clientY;
       }
     }
 
     setCalendarCreateDrag((current) =>
       current && current.pointerId === event.pointerId
-        ? { ...current, currentY: event.clientY, active: shouldActivate }
+        ? {
+            ...current,
+            currentY: event.clientY,
+            lastY: event.clientY,
+            active: shouldActivate,
+          }
         : current
     );
   };
@@ -4405,6 +4417,7 @@ export default function Home() {
                   ref={calendarTimelineRef}
                   style={{
                     height: `${calendarTimeline.height}px`,
+                    touchAction: "none",
                     WebkitTouchCallout: "none",
                     WebkitUserSelect: "none",
                     userSelect: "none",
