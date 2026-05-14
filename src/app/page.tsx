@@ -161,6 +161,17 @@ const formatShortDate = (value: string) =>
     year: "numeric",
   }).format(new Date(`${value}T12:00:00`));
 
+const calendarHistoryDateParts = (value: string) => {
+  const date = new Date(`${value}T12:00:00`);
+  return {
+    day: `${date.getDate()}`,
+    month: new Intl.DateTimeFormat("ro-RO", { month: "short" })
+      .format(date)
+      .replace(".", ""),
+    year: `${date.getFullYear()}`,
+  };
+};
+
 const fullDateLabel = (value: string) =>
   new Intl.DateTimeFormat("ro-RO", {
     day: "numeric",
@@ -661,6 +672,9 @@ export default function Home() {
   const [clientSearch, setClientSearch] = useState("");
   const [appointmentSearch, setAppointmentSearch] = useState("");
   const [appointmentClientFilter, setAppointmentClientFilter] = useState("");
+  const [appointmentHistoryOpen, setAppointmentHistoryOpen] = useState(false);
+  const [appointmentHistorySearch, setAppointmentHistorySearch] = useState("");
+  const [appointmentHistoryClientId, setAppointmentHistoryClientId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("toate");
   const [selectedMonth, setSelectedMonth] = useState(() => todayIso().slice(0, 7));
   const [reportMonth, setReportMonth] = useState(() => todayIso().slice(0, 7));
@@ -1681,6 +1695,43 @@ export default function Home() {
         client.phone.toLowerCase().includes(term)
     );
   }, [appointmentClientFilter, clients]);
+
+  const filteredClientsForHistory = useMemo(() => {
+    const term = appointmentHistorySearch.trim().toLowerCase();
+    const list = clients
+      .filter((client) => !isPersonalClient(client))
+      .sort((a, b) => a.name.localeCompare(b.name, "ro"));
+    if (!term) {
+      return list.slice(0, 8);
+    }
+    return list
+      .filter(
+        (client) =>
+          client.name.toLowerCase().includes(term) ||
+          client.phone.toLowerCase().includes(term)
+      )
+      .slice(0, 12);
+  }, [appointmentHistorySearch, clients]);
+
+  const appointmentHistoryClient = useMemo(
+    () => clients.find((client) => client.id === appointmentHistoryClientId) ?? null,
+    [appointmentHistoryClientId, clients]
+  );
+
+  const appointmentHistoryResults = useMemo(() => {
+    if (!appointmentHistoryClient) {
+      return [];
+    }
+    return appointments
+      .filter(
+        (appointment) =>
+          appointment.clientId === appointmentHistoryClient.id &&
+          appointment.status !== "Anulata"
+      )
+      .sort((a, b) =>
+        a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)
+      );
+  }, [appointmentHistoryClient, appointments]);
 
   const personalBlocks = useMemo(
     () =>
@@ -4909,9 +4960,161 @@ export default function Home() {
 
             <section className="mt-6">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Programari</h2>
-                <span className="text-sm text-muted">{humanDate(appointmentDate)}</span>
+                <div>
+                  <h2 className="text-lg font-semibold">Programari</h2>
+                  <span className="text-sm text-muted">{humanDate(appointmentDate)}</span>
+                </div>
+                <button
+                  className={`rounded-[8px] border px-3 py-2 text-sm font-semibold ${
+                    appointmentHistoryOpen
+                      ? "border-gold bg-gold text-black"
+                      : "border-line bg-panel text-foreground"
+                  }`}
+                  onClick={() => {
+                    setAppointmentHistoryOpen((current) => !current);
+                    if (!appointmentHistoryOpen) {
+                      setAppointmentHistorySearch("");
+                    }
+                  }}
+                  type="button"
+                  aria-label="Cauta programari dupa clienta"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-3.5-3.5" />
+                  </svg>
+                </button>
               </div>
+
+              {appointmentHistoryOpen ? (
+                <div className="gold-ring mb-4 rounded-[8px] border border-line bg-[#202124]">
+                  <div className="flex items-center justify-between gap-3 border-b border-[#34363a] bg-[#2c2d31] px-3 py-3">
+                    {appointmentHistoryClient ? (
+                      <button
+                        className="rounded-[8px] border border-line bg-black px-3 py-2 text-sm"
+                        onClick={() => setAppointmentHistoryClientId(null)}
+                        type="button"
+                      >
+                        Inapoi
+                      </button>
+                    ) : (
+                      <p className="text-sm font-semibold">Cauta clienta</p>
+                    )}
+                    <p className="min-w-0 truncate text-lg font-semibold">
+                      {appointmentHistoryClient?.name ?? "Istoric programari"}
+                    </p>
+                    <button
+                      className="rounded-[8px] border border-line bg-black px-3 py-2 text-sm"
+                      onClick={() => {
+                        setAppointmentHistoryOpen(false);
+                        setAppointmentHistoryClientId(null);
+                        setAppointmentHistorySearch("");
+                      }}
+                      type="button"
+                    >
+                      Inchide
+                    </button>
+                  </div>
+
+                  {!appointmentHistoryClient ? (
+                    <div className="px-3 py-3">
+                      <label className="grid gap-2 text-sm">
+                        <span className="text-muted">Nume sau telefon</span>
+                        <input
+                          className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none focus:border-gold"
+                          onChange={(event) => setAppointmentHistorySearch(event.target.value)}
+                          placeholder="Cauta clienta..."
+                          value={appointmentHistorySearch}
+                        />
+                      </label>
+                      <div className="mt-3 grid gap-2">
+                        {filteredClientsForHistory.map((client) => {
+                          const visits = clientActivityById.get(client.id)?.visits ?? client.visits;
+                          return (
+                            <button
+                              className="rounded-[8px] border border-line bg-black/70 px-3 py-3 text-left"
+                              key={client.id}
+                              onClick={() => setAppointmentHistoryClientId(client.id)}
+                              type="button"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="font-semibold">{client.name}</p>
+                                <p className="text-xs text-gold">{visits} vizite</p>
+                              </div>
+                              <p className="mt-1 text-sm text-muted">{client.phone || "fara telefon"}</p>
+                            </button>
+                          );
+                        })}
+                        {filteredClientsForHistory.length === 0 ? (
+                          <p className="rounded-[8px] border border-line bg-black/70 px-3 py-3 text-sm text-muted">
+                            Nu am gasit clienta.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="max-h-[62vh] overflow-y-auto px-3 py-3">
+                      {appointmentHistoryResults.length > 0 ? (
+                        <div className="space-y-3">
+                          {appointmentHistoryResults.map((appointment, index) => {
+                            const dateParts = calendarHistoryDateParts(appointment.date);
+                            const previous = appointmentHistoryResults[index - 1];
+                            const showYear = !previous || previous.date.slice(0, 4) !== appointment.date.slice(0, 4);
+                            const start = timeToMinutes(appointment.start);
+                            const end = start + parseDurationToMinutes(appointment.duration);
+                            return (
+                              <div key={appointment.id}>
+                                {showYear ? (
+                                  <p className="mb-2 ml-[92px] text-sm font-semibold text-[#8e949d]">
+                                    {dateParts.year}
+                                  </p>
+                                ) : null}
+                                <button
+                                  className="grid w-full grid-cols-[72px_1fr] items-stretch gap-3 text-left"
+                                  onClick={() => {
+                                    setAppointmentDate(appointment.date);
+                                    startEditAppointment(appointment);
+                                  }}
+                                  type="button"
+                                >
+                                  <div className="pt-2 text-center text-[#a8adb5]">
+                                    <p className="text-sm lowercase">{dateParts.month}</p>
+                                    <p className="mt-1 text-3xl leading-none">{dateParts.day}</p>
+                                  </div>
+                                  <div className="rounded-[8px] bg-[#54b6df] px-4 py-3 text-[#111820] shadow-sm">
+                                    <p className="truncate text-base font-semibold">
+                                      {appointment.clientName}
+                                    </p>
+                                    <p className="mt-1 text-sm">
+                                      {minutesToTime(start)} - {minutesToTime(end)}
+                                    </p>
+                                    <p className="mt-2 truncate text-xs opacity-80">
+                                      {appointment.service} • {appointment.duration}
+                                    </p>
+                                  </div>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="rounded-[8px] border border-line bg-black/70 px-3 py-3 text-sm text-muted">
+                          Clienta nu are programari salvate.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : null}
 
               <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
                 {["toate", "neconfirmate", "Noua", "Confirmata", "Reminder maine", "Finalizata", "Anulata"].map(
