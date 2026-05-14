@@ -89,6 +89,14 @@ type CalendarPointerDrag = {
   grabOffsetY: number;
   active: boolean;
 };
+type CalendarCreateDrag = {
+  pointerId: number;
+  originY: number;
+  currentY: number;
+  startMinutes: number;
+  startedAt: number;
+  active: boolean;
+};
 type DayBusinessSettings = {
   enabled: boolean;
   hasBreak: boolean;
@@ -194,6 +202,18 @@ const minutesToTime = (total: number) => {
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
   return `${`${hours}`.padStart(2, "0")}:${`${minutes}`.padStart(2, "0")}`;
+};
+
+const minutesToDurationInput = (total: number) => {
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h${minutes}min`;
+  }
+  if (hours > 0) {
+    return `${hours}h`;
+  }
+  return `${minutes}min`;
 };
 
 const CALENDAR_HOUR_HEIGHT = 72;
@@ -579,6 +599,7 @@ export default function Home() {
   const [draggingAppointmentId, setDraggingAppointmentId] = useState<number | null>(null);
   const [dragTargetKey, setDragTargetKey] = useState("");
   const [calendarPointerDrag, setCalendarPointerDrag] = useState<CalendarPointerDrag | null>(null);
+  const [calendarCreateDrag, setCalendarCreateDrag] = useState<CalendarCreateDrag | null>(null);
   const [serviceName, setServiceName] = useState("");
   const [serviceDuration, setServiceDuration] = useState("");
   const [servicePrice, setServicePrice] = useState(0);
@@ -2896,14 +2917,10 @@ export default function Home() {
     setDragTargetKey(targetKey);
   };
 
-  const getTimelineStartFromClientY = (
-    clientY: number,
-    appointment: Appointment,
-    grabOffsetY = 0
-  ) => {
+  const getTimelineMinuteFromClientY = (clientY: number, grabOffsetY = 0) => {
     const element = calendarTimelineRef.current;
     if (!element) {
-      return appointment.start;
+      return calendarTimeline.rangeStart;
     }
     const rect = element.getBoundingClientRect();
     const rawMinutes =
@@ -2911,6 +2928,15 @@ export default function Home() {
       ((clientY - grabOffsetY - rect.top + element.scrollTop) / CALENDAR_HOUR_HEIGHT) * 60;
     const snapped =
       Math.round(rawMinutes / CALENDAR_SNAP_MINUTES) * CALENDAR_SNAP_MINUTES;
+    return Math.min(calendarTimeline.rangeEnd, Math.max(calendarTimeline.rangeStart, snapped));
+  };
+
+  const getTimelineStartFromClientY = (
+    clientY: number,
+    appointment: Appointment,
+    grabOffsetY = 0
+  ) => {
+    const snapped = getTimelineMinuteFromClientY(clientY, grabOffsetY);
     const duration = parseDurationToMinutes(appointment.duration);
     const minStart = calendarTimeline.rangeStart;
     const maxStart = Math.max(minStart, calendarTimeline.rangeEnd - duration);
@@ -3036,6 +3062,142 @@ export default function Home() {
       appointmentDate,
       getTimelineStartFromClientY(event.clientY, appointment)
     );
+  };
+
+  const openAppointmentDraftFromCalendar = (startMinutes: number, durationMinutes: number) => {
+    const duration = minutesToDurationInput(durationMinutes);
+    const startTime = minutesToTime(startMinutes);
+    const dayAppointments = appointments.filter(
+      (appointment) => appointment.date === appointmentDate
+    );
+
+    if (!fitsInsideWorkWindows(appointmentDate, startTime, duration)) {
+      setToast({ text: "Intervalul ales este in afara programului.", type: "error" });
+      return;
+    }
+
+    if (hasConflict(null, startTime, duration, dayAppointments)) {
+      setToast({ text: "Intervalul ales se suprapune cu alta programare.", type: "error" });
+      return;
+    }
+
+    const service =
+      selectedServiceForForm ??
+      activeServices[0] ??
+      services[0] ??
+      baseServices[0];
+
+    setActiveTab("appointments");
+    setActivePanel("appointment");
+    setEditingAppointmentId(null);
+    setAppointmentDate(appointmentDate);
+    setAppointmentTime(startTime);
+    setAppointmentDuration(duration);
+    if (service) {
+      setSelectedServiceId(service.id);
+      setAppointmentPrice(service.price);
+    }
+    setAppointmentStatus("Noua");
+    setAppointmentNotes("");
+    setAppointmentClientFilter("");
+    setScrollToEditorTick((value) => value + 1);
+  };
+
+  const startCalendarCreateDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (movingAppointment || calendarPointerDrag) {
+      return;
+    }
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      target.closest("[data-calendar-appointment],button,a,input,textarea,select")
+    ) {
+      return;
+    }
+
+    setMovingAppointmentId(null);
+    setDraggingAppointmentId(null);
+    setCalendarCreateDrag({
+      pointerId: event.pointerId,
+      originY: event.clientY,
+      currentY: event.clientY,
+      startMinutes: getTimelineMinuteFromClientY(event.clientY),
+      startedAt: Date.now(),
+      active: false,
+    });
+  };
+
+  const updateCalendarCreateDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (!calendarCreateDrag || calendarCreateDrag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const shouldActivate =
+      calendarCreateDrag.active ||
+      (Date.now() - calendarCreateDrag.startedAt > 220 &&
+        Math.abs(event.clientY - calendarCreateDrag.originY) > 6);
+
+    if (shouldActivate) {
+      event.preventDefault();
+      if (!calendarCreateDrag.active) {
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // Pointer capture is best-effort on mobile browsers.
+        }
+      }
+    }
+
+    setCalendarCreateDrag((current) =>
+      current && current.pointerId === event.pointerId
+        ? { ...current, currentY: event.clientY, active: shouldActivate }
+        : current
+    );
+  };
+
+  const finishCalendarCreateDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (!calendarCreateDrag || calendarCreateDrag.pointerId !== event.pointerId) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    const wasActive =
+      calendarCreateDrag.active ||
+      (Date.now() - calendarCreateDrag.startedAt > 220 &&
+        Math.abs(event.clientY - calendarCreateDrag.originY) > 6);
+    const endMinutes = getTimelineMinuteFromClientY(event.clientY);
+    let startMinutes = Math.min(calendarCreateDrag.startMinutes, endMinutes);
+    let finishMinutes = Math.max(calendarCreateDrag.startMinutes, endMinutes);
+
+    setCalendarCreateDrag(null);
+    if (!wasActive) {
+      return;
+    }
+
+    if (finishMinutes - startMinutes < 30) {
+      if (endMinutes >= calendarCreateDrag.startMinutes) {
+        finishMinutes = Math.min(calendarTimeline.rangeEnd, startMinutes + 30);
+      } else {
+        startMinutes = Math.max(calendarTimeline.rangeStart, finishMinutes - 30);
+      }
+    }
+
+    if (finishMinutes - startMinutes < 30) {
+      return;
+    }
+
+    openAppointmentDraftFromCalendar(startMinutes, finishMinutes - startMinutes);
+  };
+
+  const cancelCalendarCreateDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (calendarCreateDrag?.pointerId === event.pointerId) {
+      setCalendarCreateDrag(null);
+    }
   };
 
   const handleDeleteAppointment = async (id: number) => {
@@ -3923,9 +4085,14 @@ export default function Home() {
 
             <div className="overflow-hidden rounded-[8px] border border-[#303136] bg-[#202124]">
               <div className="flex items-center justify-between border-b border-[#34363a] bg-[#2c2d31] px-3 py-3">
-                <p className="text-sm font-semibold">
-                  {appointmentsForDayAll.length} programari
-                </p>
+                <div>
+                  <p className="text-sm font-semibold">
+                    {appointmentsForDayAll.length} programari
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-[#a8a8ad]">
+                    Tine apasat pe liber si trage pentru programare noua.
+                  </p>
+                </div>
                 <p className="text-xs text-[#a8a8ad]">
                   Liber {Math.floor(dayTimeline.totalFreeMinutes / 60)}h {dayTimeline.totalFreeMinutes % 60}m
                 </p>
@@ -3943,6 +4110,10 @@ export default function Home() {
                     setDragTargetKey("calendar-timeline");
                   }}
                   onDrop={(event) => void handleCalendarTimelineDrop(event)}
+                  onPointerCancel={cancelCalendarCreateDrag}
+                  onPointerDown={startCalendarCreateDrag}
+                  onPointerMove={updateCalendarCreateDrag}
+                  onPointerUp={finishCalendarCreateDrag}
                   ref={calendarTimelineRef}
                   style={{ height: `${calendarTimeline.height}px` }}
                 >
@@ -3985,6 +4156,53 @@ export default function Home() {
 
                   <div className="absolute bottom-0 left-[62px] top-0 border-l border-[#3a3c40]" />
 
+                  {calendarCreateDrag?.active
+                    ? (() => {
+                        const endMinutes = getTimelineMinuteFromClientY(
+                          calendarCreateDrag.currentY
+                        );
+                        let startMinutes = Math.min(
+                          calendarCreateDrag.startMinutes,
+                          endMinutes
+                        );
+                        let finishMinutes = Math.max(
+                          calendarCreateDrag.startMinutes,
+                          endMinutes
+                        );
+                        if (finishMinutes - startMinutes < 30) {
+                          if (endMinutes >= calendarCreateDrag.startMinutes) {
+                            finishMinutes = Math.min(
+                              calendarTimeline.rangeEnd,
+                              startMinutes + 30
+                            );
+                          } else {
+                            startMinutes = Math.max(
+                              calendarTimeline.rangeStart,
+                              finishMinutes - 30
+                            );
+                          }
+                        }
+                        const top =
+                          ((startMinutes - calendarTimeline.rangeStart) / 60) *
+                          CALENDAR_HOUR_HEIGHT;
+                        const height = Math.max(
+                          36,
+                          ((finishMinutes - startMinutes) / 60) * CALENDAR_HOUR_HEIGHT - 4
+                        );
+                        return (
+                          <div
+                            className="pointer-events-none absolute left-[76px] right-3 z-10 overflow-hidden rounded-[8px] border border-dashed border-gold bg-gold/20 px-3 py-2 text-sm text-gold shadow-sm"
+                            style={{ top: `${top}px`, height: `${height}px` }}
+                          >
+                            <p className="font-semibold">Programare noua</p>
+                            <p className="mt-0.5 text-xs">
+                              {minutesToTime(startMinutes)} - {minutesToTime(finishMinutes)}
+                            </p>
+                          </div>
+                        );
+                      })()
+                    : null}
+
                   {calendarTimeline.appointments.map((appointment) => {
                     const serviceColors = serviceColorClasses(appointment.service);
                     const start = timeToMinutes(appointment.start);
@@ -4013,6 +4231,7 @@ export default function Home() {
                     return (
                       <div
                         key={`calendar-block-${appointment.id}`}
+                        data-calendar-appointment
                         className={`absolute left-[76px] right-3 touch-none select-none overflow-hidden rounded-[8px] border px-3 py-2 shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
                           isMoving ? "z-20 ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
                         }`}
@@ -4039,15 +4258,19 @@ export default function Home() {
                         </div>
                         <div className="mt-2 flex gap-2">
                           <button
-                            className="rounded-[8px] border border-line bg-white/70 px-2 py-1 text-xs font-semibold text-[#1f1a12]"
-                            onClick={() => setMovingAppointmentId(isMoving ? null : appointment.id)}
+                            className="rounded-[8px] border border-[#7a3131] bg-[#3a1515] px-2 py-1 text-xs font-semibold text-[#ffd1d1]"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeleteAppointment(appointment.id);
+                            }}
                             type="button"
                           >
-                            {isMoving ? "Selectata" : "Muta"}
+                            Sterge
                           </button>
                           <button
                             className="rounded-[8px] border border-line bg-white/70 px-2 py-1 text-xs font-semibold text-[#1f1a12]"
-                            onClick={() => {
+                            onClick={(event) => {
+                              event.stopPropagation();
                               setActiveTab("appointments");
                               startEditAppointment(appointment);
                             }}
