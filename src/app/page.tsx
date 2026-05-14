@@ -35,7 +35,7 @@ const PERSONAL_CLIENT_MARKER = "[solash-personal-client]";
 const PERSONAL_BLOCK_MARKER = "[solash-personal-block]";
 const PERSONAL_BLOCK_SERVICE = "Blocaj personal";
 const PERSONAL_BLOCK_PHONE = "0000000000";
-const PERSONAL_BLOCK_PRESETS = ["Eu gene", "Eu par", "Eu unghii"];
+const LEGACY_PERSONAL_BLOCK_PRESETS = ["Eu gene", "Eu par", "Eu unghii"];
 const DEFAULT_WHATSAPP_TEMPLATE =
   "Buna, {clienta}! Confirmam programarea ta SoLash pentru {data} la {ora}. Te asteptam cu drag!";
 const APPOINTMENT_SELECT_WITH_NOTES =
@@ -330,7 +330,7 @@ const formatPhoneForWhatsApp = (phone: string) => {
 
 const isPersonalClient = (client: Client) =>
   client.notes.includes(PERSONAL_CLIENT_MARKER) ||
-  (client.phone === PERSONAL_BLOCK_PHONE && PERSONAL_BLOCK_PRESETS.includes(client.name));
+  (client.phone === PERSONAL_BLOCK_PHONE && LEGACY_PERSONAL_BLOCK_PRESETS.includes(client.name));
 
 const isPersonalBlock = (appointment: Appointment) =>
   appointment.service === PERSONAL_BLOCK_SERVICE ||
@@ -679,7 +679,7 @@ export default function Home() {
     readBusinessSettings()
   );
   const [daysOffInput, setDaysOffInput] = useState(() => readBusinessSettings().daysOff.join(", "));
-  const [personalBlockTitle, setPersonalBlockTitle] = useState(PERSONAL_BLOCK_PRESETS[0]);
+  const [personalBlockTitle, setPersonalBlockTitle] = useState("");
   const [personalBlockDate, setPersonalBlockDate] = useState(todayIso());
   const [personalBlockTime, setPersonalBlockTime] = useState("10:00");
   const [personalBlockDuration, setPersonalBlockDuration] = useState("1h");
@@ -1943,6 +1943,19 @@ export default function Home() {
     []
   );
 
+  useEffect(() => {
+    if (!draggingAppointmentId) {
+      return;
+    }
+
+    const preventTouchScroll = (event: TouchEvent) => {
+      event.preventDefault();
+    };
+
+    window.addEventListener("touchmove", preventTouchScroll, { passive: false });
+    return () => window.removeEventListener("touchmove", preventTouchScroll);
+  }, [draggingAppointmentId]);
+
   const resetAppointmentForm = (service?: Service) => {
     const mostUsedService =
       services.find((item) => item.id === mostUsedServiceId) ??
@@ -2866,7 +2879,7 @@ export default function Home() {
     const title = personalBlockTitle.trim();
     const durationMinutes = parseDurationToMinutes(personalBlockDuration);
     if (!title) {
-      setToast({ text: "Scrie numele blocajului, de exemplu Eu gene.", type: "error" });
+      setToast({ text: "Scrie cum vrei sa apara blocajul in calendar.", type: "error" });
       return;
     }
     if (durationMinutes <= 0) {
@@ -3245,19 +3258,21 @@ export default function Home() {
       return;
     }
     const movement = Math.abs(event.clientY - calendarPointerDrag.originY);
-    if (!calendarPointerDrag.active && movement > 12) {
+    const isMoveLocked =
+      calendarPointerDrag.active || draggingAppointmentId === appointment.id;
+    if (!isMoveLocked && movement > 12) {
       clearCalendarMoveHoldTimer();
       setCalendarPointerDrag(null);
       return;
     }
-    if (calendarPointerDrag.active) {
+    if (isMoveLocked) {
       event.preventDefault();
     }
     setCalendarPointerDrag((current) =>
       current &&
       current.pointerId === event.pointerId &&
       current.appointmentId === appointment.id
-        ? { ...current, currentY: event.clientY }
+        ? { ...current, currentY: event.clientY, active: isMoveLocked }
         : current
     );
   };
@@ -3277,7 +3292,8 @@ export default function Home() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    const wasActive = calendarPointerDrag.active;
+    const wasActive =
+      calendarPointerDrag.active || draggingAppointmentId === appointment.id;
     setCalendarPointerDrag(null);
     setDraggingAppointmentId(null);
     setDragTargetKey("");
@@ -4468,9 +4484,12 @@ export default function Home() {
                     const serviceColors = serviceColorClasses(appointment.service);
                     const start = timeToMinutes(appointment.start);
                     const end = start + parseDurationToMinutes(appointment.duration);
-                    const previewStart =
+                    const isPointerMovingThisAppointment =
                       calendarPointerDrag?.appointmentId === appointment.id &&
-                      calendarPointerDrag.active
+                      (calendarPointerDrag.active ||
+                        draggingAppointmentId === appointment.id);
+                    const previewStart =
+                      isPointerMovingThisAppointment
                         ? timeToMinutes(
                             getTimelineStartFromClientY(
                               calendarPointerDrag.currentY,
@@ -4488,8 +4507,7 @@ export default function Home() {
                     const isMoving =
                       movingAppointmentId === appointment.id ||
                       draggingAppointmentId === appointment.id ||
-                      (calendarPointerDrag?.appointmentId === appointment.id &&
-                        calendarPointerDrag.active);
+                      isPointerMovingThisAppointment;
                     return (
                       <div
                         key={`calendar-block-${appointment.id}`}
@@ -5452,33 +5470,17 @@ export default function Home() {
             </div>
 
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-[#181511] px-4 py-4">
-              <p className="text-sm font-semibold">Blocaje personale</p>
+              <p className="text-sm font-semibold">Serviciile mele</p>
               <p className="mt-2 text-sm text-[#ddd4c5]">
-                Pentru Eu gene, Eu par, Eu unghii sau alte lucruri personale. Ocupa loc in calendar, dar nu pune venit.
+                Scrii exact ce vrei sa apara in calendar. Ocupa loc, dar nu pune venit.
               </p>
-              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                {PERSONAL_BLOCK_PRESETS.map((preset) => (
-                  <button
-                    className={`shrink-0 rounded-[8px] border px-3 py-2 text-xs font-semibold ${
-                      personalBlockTitle === preset
-                        ? "border-gold bg-gold text-black"
-                        : "border-[#3f3522] bg-black/70 text-[#ddd4c5]"
-                    }`}
-                    key={preset}
-                    onClick={() => setPersonalBlockTitle(preset)}
-                    type="button"
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
               <div className="mt-3 grid gap-3">
                 <label className="grid gap-2 text-sm">
-                  <span className="text-muted">Nume blocaj</span>
+                  <span className="text-muted">Cum apare in calendar</span>
                   <input
                     className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
                     onChange={(event) => setPersonalBlockTitle(event.target.value)}
-                    placeholder="Eu gene"
+                    placeholder="Ex: treaba mea, pauza, cumparaturi"
                     value={personalBlockTitle}
                   />
                 </label>
