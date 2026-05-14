@@ -94,6 +94,7 @@ type CalendarPointerDrag = {
   pointerId: number;
   originY: number;
   currentY: number;
+  lastY: number;
   grabOffsetY: number;
   active: boolean;
 };
@@ -3224,6 +3225,7 @@ export default function Home() {
       pointerId,
       originY: event.clientY,
       currentY: event.clientY,
+      lastY: event.clientY,
       grabOffsetY: event.clientY - appointmentRect.top,
       active: false,
     });
@@ -3260,19 +3262,28 @@ export default function Home() {
     const movement = Math.abs(event.clientY - calendarPointerDrag.originY);
     const isMoveLocked =
       calendarPointerDrag.active || draggingAppointmentId === appointment.id;
-    if (!isMoveLocked && movement > 12) {
-      clearCalendarMoveHoldTimer();
-      setCalendarPointerDrag(null);
-      return;
+    event.preventDefault();
+
+    if (!isMoveLocked && movement > 4) {
+      const scrollContainer = calendarTimelineRef.current?.parentElement;
+      if (scrollContainer) {
+        scrollContainer.scrollTop += calendarPointerDrag.lastY - event.clientY;
+      }
+      if (movement > 12) {
+        clearCalendarMoveHoldTimer();
+      }
     }
-    if (isMoveLocked) {
-      event.preventDefault();
-    }
+
     setCalendarPointerDrag((current) =>
       current &&
       current.pointerId === event.pointerId &&
       current.appointmentId === appointment.id
-        ? { ...current, currentY: event.clientY, active: isMoveLocked }
+        ? {
+            ...current,
+            currentY: event.clientY,
+            lastY: event.clientY,
+            active: isMoveLocked,
+          }
         : current
     );
   };
@@ -4377,7 +4388,7 @@ export default function Home() {
 
               <div className="max-h-[68vh] overflow-y-auto">
                 <div
-                  className="relative"
+                  className="relative select-none"
                   onClick={(event) => void handleCalendarTimelineClick(event)}
                   onDragLeave={() => setDragTargetKey("")}
                   onDragOver={(event) => {
@@ -4392,7 +4403,12 @@ export default function Home() {
                   onPointerMove={updateCalendarCreateDrag}
                   onPointerUp={finishCalendarCreateDrag}
                   ref={calendarTimelineRef}
-                  style={{ height: `${calendarTimeline.height}px` }}
+                  style={{
+                    height: `${calendarTimeline.height}px`,
+                    WebkitTouchCallout: "none",
+                    WebkitUserSelect: "none",
+                    userSelect: "none",
+                  }}
                 >
                   {calendarTimeline.quarterMarks.map((minute) => {
                     const top =
@@ -4524,7 +4540,10 @@ export default function Home() {
                         style={{
                           top: `${top}px`,
                           height: `${height}px`,
-                          touchAction: isMoving ? "none" : "pan-y",
+                          touchAction: "none",
+                          WebkitTouchCallout: "none",
+                          WebkitUserSelect: "none",
+                          userSelect: "none",
                         }}
                       >
                         <div className="flex items-start justify-between gap-2">
