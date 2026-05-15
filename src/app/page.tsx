@@ -4662,28 +4662,22 @@ export default function Home() {
                     const top =
                       ((start - calendarTimeline.rangeStart) / 60) * CALENDAR_HOUR_HEIGHT;
                     const height = Math.max(
-                      30,
+                      22,
                       ((end - start) / 60) * CALENDAR_HOUR_HEIGHT - 4
                     );
                     return (
                       <div
                         key={`calendar-cancelled-${appointment.id}`}
                         data-calendar-appointment
-                        className="pointer-events-none absolute left-[76px] right-3 z-[1] overflow-hidden rounded-[8px] border border-[#7a3131]/80 bg-[#2a1515]/85 px-3 py-2 opacity-90 shadow-sm"
+                        className="pointer-events-none absolute left-[64px] z-[1] w-[9px] overflow-visible rounded-[8px] border border-[#7a3131]/80 bg-[#7a3131]/80 shadow-sm"
                         style={{ top: `${top}px`, height: `${height}px` }}
+                        title={`${appointment.clientName} anulata`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-[#ffd1d1]">
-                              {appointment.clientName}
-                            </p>
-                            <p className="mt-0.5 truncate text-xs text-[#f0aaa5]">
-                              Anulata • {appointment.service}
-                            </p>
-                          </div>
-                          <p className="shrink-0 text-xs text-[#f0aaa5]">
-                            {appointment.start}
-                          </p>
+                        <div className="absolute left-3 top-1/2 max-w-[112px] -translate-y-1/2 rounded-[6px] border border-[#7a3131]/70 bg-[#241414]/95 px-2 py-1 text-[10px] font-semibold leading-tight text-[#ffc7c7] opacity-85">
+                          <span className="block truncate">Anulata</span>
+                          <span className="block truncate font-medium text-[#f0aaa5]">
+                            {appointment.start} {appointment.clientName}
+                          </span>
                         </div>
                       </div>
                     );
