@@ -89,6 +89,10 @@ type SaveWarning = {
   title: string;
   details: string[];
 };
+type LegalHoliday = {
+  date: string;
+  name: string;
+};
 type CalendarPointerDrag = {
   appointmentId: number;
   pointerId: number;
@@ -603,6 +607,63 @@ const isoFromDate = (date: Date) => {
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+
+const ROMANIA_LEGAL_HOLIDAYS: LegalHoliday[] = [
+  { date: "2026-01-01", name: "Anul Nou" },
+  { date: "2026-01-02", name: "A doua zi dupa Anul Nou" },
+  { date: "2026-01-06", name: "Boboteaza" },
+  { date: "2026-01-07", name: "Sfantul Ioan Botezatorul" },
+  { date: "2026-01-24", name: "Unirea Principatelor Romane" },
+  { date: "2026-04-10", name: "Vinerea Mare" },
+  { date: "2026-04-12", name: "Pastele ortodox" },
+  { date: "2026-04-13", name: "A doua zi de Paste" },
+  { date: "2026-05-01", name: "Ziua Muncii" },
+  { date: "2026-05-31", name: "Rusalii" },
+  { date: "2026-06-01", name: "A doua zi de Rusalii / Ziua Copilului" },
+  { date: "2026-08-15", name: "Adormirea Maicii Domnului" },
+  { date: "2026-11-30", name: "Sfantul Andrei" },
+  { date: "2026-12-01", name: "Ziua Nationala a Romaniei" },
+  { date: "2026-12-25", name: "Craciunul" },
+  { date: "2026-12-26", name: "A doua zi de Craciun" },
+  { date: "2027-01-01", name: "Anul Nou" },
+  { date: "2027-01-02", name: "A doua zi dupa Anul Nou" },
+  { date: "2027-01-06", name: "Boboteaza" },
+  { date: "2027-01-07", name: "Sfantul Ioan Botezatorul" },
+  { date: "2027-01-24", name: "Unirea Principatelor Romane" },
+  { date: "2027-04-30", name: "Vinerea Mare" },
+  { date: "2027-05-01", name: "Ziua Muncii" },
+  { date: "2027-05-02", name: "Pastele ortodox" },
+  { date: "2027-05-03", name: "A doua zi de Paste" },
+  { date: "2027-06-01", name: "Ziua Copilului" },
+  { date: "2027-06-20", name: "Rusalii" },
+  { date: "2027-06-21", name: "A doua zi de Rusalii" },
+  { date: "2027-08-15", name: "Adormirea Maicii Domnului" },
+  { date: "2027-11-30", name: "Sfantul Andrei" },
+  { date: "2027-12-01", name: "Ziua Nationala a Romaniei" },
+  { date: "2027-12-25", name: "Craciunul" },
+  { date: "2027-12-26", name: "A doua zi de Craciun" },
+  { date: "2028-01-01", name: "Anul Nou" },
+  { date: "2028-01-02", name: "A doua zi dupa Anul Nou" },
+  { date: "2028-01-06", name: "Boboteaza" },
+  { date: "2028-01-07", name: "Sfantul Ioan Botezatorul" },
+  { date: "2028-01-24", name: "Unirea Principatelor Romane" },
+  { date: "2028-04-14", name: "Vinerea Mare" },
+  { date: "2028-04-16", name: "Pastele ortodox" },
+  { date: "2028-04-17", name: "A doua zi de Paste" },
+  { date: "2028-05-01", name: "Ziua Muncii" },
+  { date: "2028-06-01", name: "Ziua Copilului" },
+  { date: "2028-06-04", name: "Rusalii" },
+  { date: "2028-06-05", name: "A doua zi de Rusalii" },
+  { date: "2028-08-15", name: "Adormirea Maicii Domnului" },
+  { date: "2028-11-30", name: "Sfantul Andrei" },
+  { date: "2028-12-01", name: "Ziua Nationala a Romaniei" },
+  { date: "2028-12-25", name: "Craciunul" },
+  { date: "2028-12-26", name: "A doua zi de Craciun" },
+];
+
+const legalHolidayByDate = new Map(
+  ROMANIA_LEGAL_HOLIDAYS.map((holiday) => [holiday.date, holiday])
+);
 
 export default function Home() {
   const appointmentEditorRef = useRef<HTMLElement | null>(null);
@@ -1213,6 +1274,7 @@ export default function Home() {
     () => shortDayMonth(appointmentDate),
     [appointmentDate]
   );
+  const selectedLegalHoliday = legalHolidayByDate.get(appointmentDate) ?? null;
   const monthLabel = useMemo(
     () =>
       new Intl.DateTimeFormat("ro-RO", {
@@ -1251,11 +1313,13 @@ export default function Home() {
       date.setDate(start.getDate() + index);
       const iso = isoFromDate(date);
       const stat = calendarDayStats.get(iso) ?? { count: 0, busyMinutes: 0 };
+      const holiday = legalHolidayByDate.get(iso) ?? null;
       return {
         iso,
         day: date.getDate(),
         inCurrentMonth: toMonthKey(iso) === selectedMonth,
         isSelected: iso === appointmentDate,
+        holiday,
         count: stat.count,
         busyMinutes: stat.busyMinutes,
       };
@@ -2137,53 +2201,56 @@ export default function Home() {
   };
 
   const buildReservationWarning = () => {
-    if (!selectedClient) {
-      return null;
-    }
-
-    const related = appointments
-      .filter(
-        (appointment) =>
-          appointment.clientId === selectedClient.id &&
-          appointment.id !== editingAppointmentId &&
-          !isCancelledAppointment(appointment)
-      )
-      .sort((a, b) =>
-        a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)
+    const details: string[] = [];
+    const legalHoliday = legalHolidayByDate.get(appointmentDate);
+    if (legalHoliday) {
+      details.push(
+        `${fullDateLabel(appointmentDate)} este sarbatoare legala: ${legalHoliday.name}. Verifica daca vrei sa lucrezi in ziua asta.`
       );
-
-    if (related.length === 0) {
-      return null;
     }
 
-    const windowDays = 21;
-    const pastCandidate = [...related]
-      .reverse()
-      .find((appointment) => {
-        const diff = daysBetween(appointment.date, appointmentDate);
+    const related = selectedClient
+      ? appointments
+          .filter(
+            (appointment) =>
+              appointment.clientId === selectedClient.id &&
+              appointment.id !== editingAppointmentId &&
+              !isCancelledAppointment(appointment)
+          )
+          .sort((a, b) =>
+            a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)
+          )
+      : [];
+
+    if (related.length > 0) {
+      const windowDays = 21;
+      const pastCandidate = [...related]
+        .reverse()
+        .find((appointment) => {
+          const diff = daysBetween(appointment.date, appointmentDate);
+          return diff > 0 && diff <= windowDays;
+        });
+      const futureCandidate = related.find((appointment) => {
+        const diff = daysBetween(appointmentDate, appointment.date);
         return diff > 0 && diff <= windowDays;
       });
-    const futureCandidate = related.find((appointment) => {
-      const diff = daysBetween(appointmentDate, appointment.date);
-      return diff > 0 && diff <= windowDays;
-    });
 
-    const details: string[] = [];
-    if (pastCandidate) {
-      const days = daysBetween(pastCandidate.date, appointmentDate);
-      details.push(
-        `Clienta a avut o rezervare cu ${daysToHuman(days)} in urma (${fullDateLabel(
-          pastCandidate.date
-        )}, ${pastCandidate.start}), iar rezervarea de atunci a fost: ${pastCandidate.service}.`
-      );
-    }
-    if (futureCandidate) {
-      const days = daysBetween(appointmentDate, futureCandidate.date);
-      details.push(
-        `Clienta mai are o rezervare peste ${daysToHuman(days)} (${fullDateLabel(
-          futureCandidate.date
-        )}, ${futureCandidate.start}). Tip programare: ${futureCandidate.service}.`
-      );
+      if (pastCandidate) {
+        const days = daysBetween(pastCandidate.date, appointmentDate);
+        details.push(
+          `Clienta a avut o rezervare cu ${daysToHuman(days)} in urma (${fullDateLabel(
+            pastCandidate.date
+          )}, ${pastCandidate.start}), iar rezervarea de atunci a fost: ${pastCandidate.service}.`
+        );
+      }
+      if (futureCandidate) {
+        const days = daysBetween(appointmentDate, futureCandidate.date);
+        details.push(
+          `Clienta mai are o rezervare peste ${daysToHuman(days)} (${fullDateLabel(
+            futureCandidate.date
+          )}, ${futureCandidate.start}). Tip programare: ${futureCandidate.service}.`
+        );
+      }
     }
 
     if (details.length === 0) {
@@ -2191,7 +2258,7 @@ export default function Home() {
     }
 
     return {
-      title: "Atentie la intervalul programarilor",
+      title: "Atentie inainte de salvare",
       details,
     } as SaveWarning;
   };
@@ -3984,6 +4051,11 @@ export default function Home() {
                 <p className="text-2xl font-semibold leading-none text-gold-strong capitalize">
                   {selectedDateBadge.month}
                 </p>
+                {selectedLegalHoliday ? (
+                  <p className="mt-1 max-w-[150px] text-xs font-semibold text-[#ffb2a8]">
+                    Sarbatoare: {selectedLegalHoliday.name}
+                  </p>
+                ) : null}
               </div>
             </div>
           </section>
@@ -4359,20 +4431,32 @@ export default function Home() {
                   return (
                     <button
                       key={day.iso}
-                      className={`min-h-[62px] rounded-[4px] px-1 py-2 text-center transition ${
+                      className={`min-h-[68px] rounded-[4px] border px-1 py-2 text-center transition ${
                         day.isSelected
-                          ? "bg-[#c8423d] text-white"
+                          ? "border-[#ffb2a8] bg-[#c8423d] text-white"
                           : day.inCurrentMonth
-                            ? "bg-black text-foreground"
-                            : "bg-black text-[#454545]"
+                            ? day.holiday
+                              ? "border-[#7a3131] bg-[#271313] text-foreground"
+                              : "border-transparent bg-black text-foreground"
+                            : day.holiday
+                              ? "border-[#3a2020] bg-black text-[#745555]"
+                              : "border-transparent bg-black text-[#454545]"
                       }`}
                       onClick={() => {
                         setAppointmentDate(day.iso);
                         setSelectedMonth(toMonthKey(day.iso));
                       }}
+                      title={day.holiday?.name}
                       type="button"
                     >
                       <p className="text-lg font-semibold leading-none">{day.day}</p>
+                      {day.holiday ? (
+                        <p className="mt-1 truncate text-[9px] font-semibold uppercase leading-none text-[#ffb2a8]">
+                          liber
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-[9px] leading-none opacity-0">liber</p>
+                      )}
                       <div className="mt-2 flex justify-center gap-0.5">
                         {Array.from({ length: 5 }, (_, index) => (
                           <span
@@ -4403,6 +4487,11 @@ export default function Home() {
                   )}
                 </p>
                 <h2 className="text-lg font-semibold capitalize">{fullDateLabel(appointmentDate)}</h2>
+                {selectedLegalHoliday ? (
+                  <p className="mt-1 text-sm font-semibold text-[#ffb2a8]">
+                    Sarbatoare legala: {selectedLegalHoliday.name}
+                  </p>
+                ) : null}
               </div>
               <button
                 className="rounded-[8px] bg-gold px-4 py-3 text-xl font-semibold text-black"
