@@ -4711,13 +4711,14 @@ export default function Home() {
                       movingAppointmentId === appointment.id ||
                       draggingAppointmentId === appointment.id ||
                       isPointerMovingThisAppointment;
+                    const isCompact = height < 72;
                     return (
                       <div
                         key={`calendar-block-${appointment.id}`}
                         data-calendar-appointment
-                        className={`absolute left-[76px] right-3 select-none overflow-hidden rounded-[8px] border px-3 py-2 shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
+                        className={`absolute left-[76px] right-3 select-none overflow-hidden rounded-[8px] border shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
                           isMoving ? "z-20 ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
-                        }`}
+                        } ${isCompact ? "px-2 py-1" : "px-3 py-2"}`}
                         draggable={false}
                         onClick={(event) => event.stopPropagation()}
                         onPointerCancel={cancelCalendarPointerDrag}
@@ -4733,42 +4734,106 @@ export default function Home() {
                           userSelect: "none",
                         }}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className={`truncate text-sm font-semibold ${serviceColors.name}`}>
-                              {appointment.clientName}
-                            </p>
-                            <p className={`mt-0.5 truncate text-xs ${serviceColors.meta}`}>
-                              {appointment.service}
-                            </p>
+                        {isCompact ? (
+                          <div className="flex h-full items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className={`truncate text-xs font-semibold ${serviceColors.name}`}>
+                                {appointment.clientName}
+                              </p>
+                              <p className={`truncate text-[10px] ${serviceColors.meta}`}>
+                                {minutesToTime(previewStart)}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 gap-1">
+                              <button
+                                className="rounded-[6px] border border-[#2e6d51] bg-[#14382a] px-2 py-1 text-[10px] font-semibold text-[#b8ffd9]"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleWhatsAppConfirm(appointment);
+                                }}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                type="button"
+                              >
+                                WA
+                              </button>
+                              <button
+                                className="rounded-[6px] border border-line bg-white/75 px-2 py-1 text-[10px] font-semibold text-[#1f1a12]"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveTab("appointments");
+                                  startEditAppointment(appointment);
+                                }}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                type="button"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="rounded-[6px] border border-[#7a3131] bg-[#3a1515] px-2 py-1 text-[10px] font-semibold text-[#ffd1d1]"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDeleteAppointment(appointment.id);
+                                }}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                type="button"
+                              >
+                                X
+                              </button>
+                            </div>
                           </div>
-                          <p className={`shrink-0 text-xs ${serviceColors.meta}`}>
-                            {minutesToTime(previewStart)}
-                          </p>
-                        </div>
-                        <div className="mt-2 flex gap-2">
-                          <button
-                            className="rounded-[8px] border border-[#7a3131] bg-[#3a1515] px-2 py-1 text-xs font-semibold text-[#ffd1d1]"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleDeleteAppointment(appointment.id);
-                            }}
-                            type="button"
-                          >
-                            Sterge
-                          </button>
-                          <button
-                            className="rounded-[8px] border border-line bg-white/70 px-2 py-1 text-xs font-semibold text-[#1f1a12]"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setActiveTab("appointments");
-                              startEditAppointment(appointment);
-                            }}
-                            type="button"
-                          >
-                            Edit
-                          </button>
-                        </div>
+                        ) : (
+                          <>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className={`truncate text-sm font-semibold ${serviceColors.name}`}>
+                                  {appointment.clientName}
+                                </p>
+                                <p className={`mt-0.5 truncate text-xs ${serviceColors.meta}`}>
+                                  {appointment.service}
+                                </p>
+                              </div>
+                              <p className={`shrink-0 text-xs ${serviceColors.meta}`}>
+                                {minutesToTime(previewStart)}
+                              </p>
+                            </div>
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                className="rounded-[8px] border border-[#7a3131] bg-[#3a1515] px-2 py-1 text-xs font-semibold text-[#ffd1d1]"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDeleteAppointment(appointment.id);
+                                }}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                type="button"
+                              >
+                                Sterge
+                              </button>
+                              <button
+                                className="rounded-[8px] border border-[#2e6d51] bg-[#14382a] px-2 py-1 text-xs font-semibold text-[#b8ffd9]"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleWhatsAppConfirm(appointment);
+                                }}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                type="button"
+                              >
+                                WhatsApp
+                              </button>
+                              <button
+                                className="rounded-[8px] border border-line bg-white/70 px-2 py-1 text-xs font-semibold text-[#1f1a12]"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveTab("appointments");
+                                  startEditAppointment(appointment);
+                                }}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                type="button"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })}
