@@ -56,3 +56,14 @@ Trimite notificari cu numele clientelor care urmeaza in 15-20 minute si evita du
 
 Aplicatia salveaza trimiterile push in `push_delivery_logs` (test, reminder zilnic, reminder 15-20 min).
 Jurnalul este vizibil in tab-ul Setari.
+
+## Calendar iPhone / widget
+
+Aplicatia poate expune programarile ca feed `.ics`, protejat cu `CALENDAR_FEED_TOKEN`.
+
+Endpoint:
+
+`/api/calendar/appointments.ics?token=CALENDAR_FEED_TOKEN`
+
+Pe iPhone, adauga linkul complet in Calendar app -> Calendars -> Add Subscription Calendar.
+Dupa abonare, poti folosi widgetul Calendar sau Widgetsmith ca sa vezi urmatoarele programari.
