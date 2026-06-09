@@ -1319,6 +1319,7 @@ export default function Home() {
         day: date.getDate(),
         inCurrentMonth: toMonthKey(iso) === selectedMonth,
         isSelected: iso === appointmentDate,
+        isToday: iso === todayIso(),
         holiday,
         count: stat.count,
         busyMinutes: stat.busyMinutes,
@@ -4428,20 +4429,25 @@ export default function Home() {
               <div className="grid grid-cols-7 gap-1 bg-black p-2">
                 {monthGridDays.map((day) => {
                   const bars = Math.min(day.count, 5);
+                  const dayStateLabel = day.isSelected ? "ales" : day.isToday ? "azi" : "liber";
+                  const dayButtonClass = day.isSelected
+                    ? "border-gold bg-[#2f2711] text-gold-strong ring-2 ring-gold-strong ring-offset-2 ring-offset-black shadow-[0_0_0_1px_rgba(255,217,122,0.22),0_0_22px_rgba(255,217,122,0.18)]"
+                    : day.inCurrentMonth
+                      ? day.holiday
+                        ? "border-[#7a3131] bg-[#271313] text-foreground"
+                        : day.isToday
+                          ? "border-[#7d682b] bg-[#15130b] text-gold-strong"
+                          : "border-transparent bg-black text-foreground"
+                      : day.holiday
+                        ? "border-[#3a2020] bg-black text-[#745555]"
+                        : day.isToday
+                          ? "border-[#4b421d] bg-black text-[#8d7937]"
+                          : "border-transparent bg-black text-[#454545]";
                   return (
                     <button
                       key={day.iso}
-                      className={`min-h-[68px] rounded-[4px] border px-1 py-2 text-center transition ${
-                        day.isSelected
-                          ? "border-[#ffb2a8] bg-[#c8423d] text-white"
-                          : day.inCurrentMonth
-                            ? day.holiday
-                              ? "border-[#7a3131] bg-[#271313] text-foreground"
-                              : "border-transparent bg-black text-foreground"
-                            : day.holiday
-                              ? "border-[#3a2020] bg-black text-[#745555]"
-                              : "border-transparent bg-black text-[#454545]"
-                      }`}
+                      aria-current={day.isSelected ? "date" : undefined}
+                      className={`min-h-[68px] rounded-[4px] border px-1 py-2 text-center transition ${dayButtonClass}`}
                       onClick={() => {
                         setAppointmentDate(day.iso);
                         setSelectedMonth(toMonthKey(day.iso));
@@ -4450,13 +4456,19 @@ export default function Home() {
                       type="button"
                     >
                       <p className="text-lg font-semibold leading-none">{day.day}</p>
-                      {day.holiday ? (
-                        <p className="mt-1 truncate text-[9px] font-semibold uppercase leading-none text-[#ffb2a8]">
-                          liber
-                        </p>
-                      ) : (
-                        <p className="mt-1 text-[9px] leading-none opacity-0">liber</p>
-                      )}
+                      <p
+                        className={`mt-1 truncate text-[9px] font-semibold uppercase leading-none ${
+                          day.isSelected
+                            ? "text-gold-strong"
+                            : day.isToday
+                              ? "text-[#d9bd63]"
+                              : day.holiday
+                                ? "text-[#ffb2a8]"
+                                : "opacity-0"
+                        }`}
+                      >
+                        {dayStateLabel}
+                      </p>
                       <div className="mt-2 flex justify-center gap-0.5">
                         {Array.from({ length: 5 }, (_, index) => (
                           <span
