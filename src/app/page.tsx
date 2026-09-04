@@ -2215,6 +2215,14 @@ export default function Home() {
       );
     }
 
+    if (!fitsInsideWorkWindows(appointmentDate, appointmentTime, appointmentDuration)) {
+      details.push(
+        `Intervalul ${appointmentTime} - ${minutesToTime(
+          timeToMinutes(appointmentTime) + parseDurationToMinutes(appointmentDuration)
+        )} nu incape in programul setat pentru ${fullDateLabel(appointmentDate)}.`
+      );
+    }
+
     const related = selectedClient
       ? appointments
           .filter(
@@ -3490,11 +3498,6 @@ export default function Home() {
     const dayAppointments = appointments.filter(
       (appointment) => appointment.date === appointmentDate
     );
-
-    if (!fitsInsideWorkWindows(appointmentDate, startTime, duration)) {
-      setToast({ text: "Intervalul ales este in afara programului.", type: "error" });
-      return;
-    }
 
     if (hasConflict(null, startTime, duration, dayAppointments)) {
       setToast({ text: "Intervalul ales se suprapune cu alta programare.", type: "error" });
