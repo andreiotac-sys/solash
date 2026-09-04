@@ -2081,17 +2081,22 @@ export default function Home() {
     return () => window.removeEventListener("touchmove", preventTouchScroll);
   }, [draggingAppointmentId]);
 
-  const resetAppointmentForm = (service?: Service) => {
+  const resetAppointmentForm = (
+    service?: Service,
+    options?: { date?: string }
+  ) => {
     const mostUsedService =
       services.find((item) => item.id === mostUsedServiceId) ??
       activeServices[0] ??
       services[0] ??
       baseServices[0];
     const source = service ?? mostUsedService;
+    const nextDate = options?.date ?? todayIso();
     setEditingAppointmentId(null);
     setSelectedServiceId(source?.id ?? 0);
     setAppointmentTime("10:00");
-    setAppointmentDate(todayIso());
+    setAppointmentDate(nextDate);
+    setSelectedMonth(toMonthKey(nextDate));
     setAppointmentDuration(source?.duration ?? "2h");
     setAppointmentPrice(source?.price ?? 0);
     setAppointmentStatus(ACTIVE_APPOINTMENT_STATUS);
@@ -2829,6 +2834,7 @@ export default function Home() {
     }
 
     setIsSavingAppointment(true);
+    const savedAppointmentDate = appointmentDate;
 
     const optimisticAppointment: Appointment = {
       id: editingAppointmentId ?? (isSupabaseConfigured ? nextTempId() : Date.now()),
@@ -2880,7 +2886,7 @@ export default function Home() {
               : "Programarea a fost salvata.",
         type: "success",
       });
-      resetAppointmentForm(service);
+      resetAppointmentForm(service, { date: savedAppointmentDate });
       setSaveWarning(null);
       setIsSavingAppointment(false);
       setActiveTab("home");
@@ -2934,7 +2940,7 @@ export default function Home() {
           text: "Programarea a fost actualizata offline. Se sincronizeaza la reconectare.",
           type: "success",
         });
-        resetAppointmentForm(service);
+        resetAppointmentForm(service, { date: savedAppointmentDate });
         setSaveWarning(null);
         setIsSavingAppointment(false);
         setActiveTab("home");
@@ -2996,7 +3002,7 @@ export default function Home() {
       setToast({ text: "Programarea a fost salvata in Supabase.", type: "success" });
     }
 
-    resetAppointmentForm(service);
+    resetAppointmentForm(service, { date: savedAppointmentDate });
     setSaveWarning(null);
     setIsSavingAppointment(false);
     setActiveTab("home");
