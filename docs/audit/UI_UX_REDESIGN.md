@@ -1,0 +1,11 @@
+# UI and UX changes
+
+The development branch adds a reversible home-screen redesign controlled by `NEXT_PUBLIC_SOLASH_NEW_UI`. The new interface is enabled unless the value is exactly `false`. Setting it to `false` at build time restores the previous home layout and styles without touching customer data. Booking and data logic remain shared between both appearances.
+
+The new home header shows the selected agenda date, previous/next day controls, a calendar picker, a return-to-today action, the next customer and time, and quick booking/customer actions before revenue summaries. Working-hour warnings now list the configured windows, and move actions ask before an exception. A confirmation never bypasses an appointment or personal-block overlap. Legacy active status values remain selectable during editing.
+
+`src/app/globals.css` adds scoped dark/gold tokens, calmer surfaces, larger bottom navigation targets, clear keyboard focus, reduced-motion support, and iPhone safe-area spacing. `src/app/layout.tsx` opts into `viewport-fit=cover`. The old styles remain when the flag is `false`. No UI framework was added. The current monolithic `page.tsx` still needs incremental component extraction; the redesign is deliberately limited to the highest-frequency home and booking flow.
+
+At 375, 390, and 430 CSS pixels, the local demo page's measured scroll width equaled the viewport width. A 375px screenshot was visually inspected for the home header and bottom navigation. The test used demo mode with no Supabase connection. Real iPhone Safari, PWA installation, VoiceOver, long-press/drag, and authenticated production-like data remain untested. The observed dev server hydration warning due to initial online state was fixed by initializing online state consistently and checking `navigator.onLine` after mount; post-fix browser retest is still required.
+
+Before a preview deployment, verify that Vercel preview variables cannot write to production Supabase. Review the feature flag and test both settings in an isolated environment. The flag is compiled into the client bundle, so changing it in Vercel requires a new deployment; it does not change data or database schema.
