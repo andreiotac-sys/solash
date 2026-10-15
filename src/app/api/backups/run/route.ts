@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import { createHash } from "node:crypto";
 import { getServerSupabase } from "@/lib/push-server";
 
 export const runtime = "nodejs";
@@ -8,6 +9,16 @@ export const runtime = "nodejs";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const backupBucket = process.env.BACKUP_BUCKET ?? "solash-backups";
+const pageSize = 500;
+const backupTables = [
+  ["clients", "Cliente"],
+  ["appointments", "Programari"],
+  ["services", "Servicii"],
+  ["push_subscriptions", "Push subscriptions"],
+  ["push_notification_runs", "Push runs"],
+  ["push_appointment_reminders", "Push reminders"],
+  ["push_delivery_logs", "Push logs"],
+] as const;
 
 const formatNowForFilename = () => {
   const now = new Date();
@@ -50,87 +61,62 @@ const runBackup = async () => {
     );
   }
 
-  const clientsResponse = await supabase
-    .from("clients")
-    .select("*")
-    .order("name", { ascending: true });
-  if (clientsResponse.error) {
+  const buckets = await supabase.storage.listBuckets();
+  const bucket = buckets.data?.find((item) => item.name === backupBucket);
+  if (buckets.error || !bucket || bucket.public) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: `Failed to load data for backup (clients: ${clientsResponse.error.message}).`,
-      },
+      { ok: false, error: "Private backup bucket is unavailable." },
       { status: 500 }
     );
   }
 
-  const appointmentsWithNotes = await supabase
-    .from("appointments")
-    .select(
-      "id, service, appointment_date, start_time, duration, price, status, notes, clients(name, phone)"
-    )
-    .order("appointment_date", { ascending: true })
-    .order("start_time", { ascending: true });
-
-  const appointmentsResponse = appointmentsWithNotes.error
-    ? await supabase
-        .from("appointments")
-        .select(
-          "id, service, appointment_date, start_time, duration, price, status, clients(name, phone)"
-        )
-        .order("appointment_date", { ascending: true })
-        .order("start_time", { ascending: true })
-    : appointmentsWithNotes;
-
-  if (appointmentsResponse.error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: `Failed to load data for backup (appointments: ${appointmentsResponse.error.message}).`,
-      },
-      { status: 500 }
-    );
+  const rowsByTable: Record<string, Record<string, unknown>[]> = {};
+  const counts: Record<string, number> = {};
+  for (const [table] of backupTables) {
+    const countResult = await supabase.from(table).select("id", { head: true, count: "exact" });
+    if (countResult.error || countResult.count === null) {
+      return NextResponse.json({ ok: false, error: `Could not count ${table}.` }, { status: 500 });
+    }
+    counts[table] = countResult.count;
+    const rows: Record<string, unknown>[] = [];
+    for (let offset = 0; offset < countResult.count; offset += pageSize) {
+      const page = await supabase.from(table).select("*").order("id").range(offset, offset + pageSize - 1);
+      if (page.error || !page.data) {
+        return NextResponse.json({ ok: false, error: `Could not export ${table}.` }, { status: 500 });
+      }
+      rows.push(...page.data);
+    }
+    if (rows.length !== countResult.count || new Set(rows.map((row) => row.id)).size !== rows.length) {
+      return NextResponse.json({ ok: false, error: `Incomplete export for ${table}.` }, { status: 500 });
+    }
+    rowsByTable[table] = rows;
   }
 
-  const servicesResponse = await supabase
-    .from("services")
-    .select("*")
-    .order("name", { ascending: true });
+  const clientIds = new Set(rowsByTable.clients.map((row) => row.id));
+  const appointmentIds = new Set(rowsByTable.appointments.map((row) => row.id));
+  if (
+    rowsByTable.appointments.some((row) => !clientIds.has(row.client_id)) ||
+    rowsByTable.push_appointment_reminders.some((row) => !appointmentIds.has(row.appointment_id))
+  ) {
+    return NextResponse.json({ ok: false, error: "Backup relationship check failed." }, { status: 500 });
+  }
+
+  for (const [table] of backupTables) {
+    const countResult = await supabase.from(table).select("id", { head: true, count: "exact" });
+    if (countResult.error || countResult.count !== counts[table]) {
+      return NextResponse.json({ ok: false, error: `Records changed during ${table} export.` }, { status: 503 });
+    }
+  }
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(clientsResponse.data),
-    "Cliente"
-  );
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(appointmentsResponse.data),
-    "Programari"
-  );
-  XLSX.utils.book_append_sheet(
-    workbook,
-    XLSX.utils.json_to_sheet(servicesResponse.error ? [] : servicesResponse.data),
-    "Servicii"
-  );
+  for (const [table, sheet] of backupTables) {
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rowsByTable[table]), sheet);
+  }
 
   const fileBuffer = XLSX.write(workbook, {
     type: "buffer",
     bookType: "xlsx",
   }) as Buffer;
-
-  const bucketResult = await supabase.storage.createBucket(backupBucket, {
-    public: false,
-  });
-  if (
-    bucketResult.error &&
-    !bucketResult.error.message.toLowerCase().includes("already exists")
-  ) {
-    return NextResponse.json(
-      { ok: false, error: `Nu am putut crea bucket-ul ${backupBucket}.` },
-      { status: 500 }
-    );
-  }
 
   const path = `daily/solash-backup-${formatNowForFilename()}.xlsx`;
   const uploadResponse = await supabase.storage
@@ -150,10 +136,24 @@ const runBackup = async () => {
     );
   }
 
+  const downloaded = await supabase.storage.from(backupBucket).download(path);
+  if (downloaded.error || !downloaded.data) {
+    return NextResponse.json({ ok: false, error: "Could not verify uploaded backup." }, { status: 500 });
+  }
+  const uploadedHash = createHash("sha256").update(fileBuffer).digest("hex");
+  const downloadedHash = createHash("sha256")
+    .update(Buffer.from(await downloaded.data.arrayBuffer()))
+    .digest("hex");
+  if (uploadedHash !== downloadedHash) {
+    return NextResponse.json({ ok: false, error: "Uploaded backup checksum mismatch." }, { status: 500 });
+  }
+
   return NextResponse.json({
     ok: true,
     bucket: backupBucket,
     path,
+    counts,
+    sha256: uploadedHash,
   });
 };
 
