@@ -54,6 +54,7 @@ const DEFAULT_DAY_END = "21:00";
 const DEFAULT_BREAK_START = "13:00";
 const DEFAULT_BREAK_END = "14:00";
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
+const newUI = process.env.NEXT_PUBLIC_SOLASH_NEW_UI !== "false";
 
 const WEEK_DAYS = [
   { key: 0, label: "Luni" },
@@ -586,9 +587,7 @@ export default function Home() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator === "undefined" ? true : navigator.onLine
-  );
+  const [isOnline, setIsOnline] = useState(true);
   const [offlineBypass, setOfflineBypass] = useState(false);
   const [pendingOpsCount, setPendingOpsCount] = useState(() =>
     typeof window === "undefined" ? 0 : readOfflineQueue().length
@@ -665,6 +664,7 @@ export default function Home() {
   } | null>(null);
 
   useEffect(() => {
+    setIsOnline(navigator.onLine);
     const onOnline = () => {
       setIsOnline(true);
     };
@@ -3873,10 +3873,10 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main className={`min-h-screen bg-background text-foreground ${newUI ? "solash-v2" : ""}`}>
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-28 pt-6">
         {activeTab === "home" ? (
-          <section className="panel-glow gold-ring rounded-[8px] border border-line px-5 py-5">
+          <section className="panel-glow gold-ring rounded-[8px] border border-line px-5 py-5" data-ui="home-hero">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="mb-3 w-fit rounded-[8px] p-0.5">
@@ -3889,10 +3889,19 @@ export default function Home() {
                     width={186}
                   />
                 </div>
-                <p className="text-sm capitalize text-muted">{humanDate(appointmentDate)}</p>
-                <p className="mt-2 max-w-[18rem] text-sm leading-6 text-[#ddd4c5]">
-                  Programari premium pentru extensii de gene, gandite clar pentru mobil.
-                </p>
+                {newUI ? (
+                  <>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gold">Agenda zilei</p>
+                    <h1 className="mt-1 text-2xl font-semibold capitalize">{humanDate(appointmentDate)}</h1>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm capitalize text-muted">{humanDate(appointmentDate)}</p>
+                    <p className="mt-2 max-w-[18rem] text-sm leading-6 text-[#ddd4c5]">
+                      Programari premium pentru extensii de gene, gandite clar pentru mobil.
+                    </p>
+                  </>
+                )}
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel px-3 py-2 text-right">
                 <p className="text-xs text-muted">Pe data aleasa</p>
@@ -3902,6 +3911,33 @@ export default function Home() {
                 <p className="text-xs text-muted">programari</p>
               </div>
             </div>
+
+            {newUI ? (
+              <>
+                <div className="mt-5 grid grid-cols-[44px_1fr_44px] gap-2" data-ui="date-stepper">
+                  <button aria-label="Ziua precedenta" onClick={() => setAppointmentDate(addDays(appointmentDate, -1))} type="button">‹</button>
+                  <button aria-label="Alege data" className="capitalize" onClick={() => setShowCalendar(true)} type="button">{humanDate(appointmentDate)}</button>
+                  <button aria-label="Ziua urmatoare" onClick={() => setAppointmentDate(addDays(appointmentDate, 1))} type="button">›</button>
+                </div>
+                <div className="mt-3 flex items-center justify-between" data-ui="today-jump">
+                  <span className="text-xs text-muted">{appointmentsForSelectedDate.length} programari in ziua selectata</span>
+                  <button onClick={() => setAppointmentDate(todayIso())} type="button">Mergi la azi</button>
+                </div>
+                <div className="mt-5" data-ui="next-customer">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Urmeaza</p>
+                  {nextUpcomingAppointment ? (
+                    <div className="mt-2 flex items-center gap-3">
+                      <p className="shrink-0 text-2xl font-semibold text-gold-strong">{nextUpcomingAppointment.start}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">{nextUpcomingAppointment.clientName}</p>
+                        <p className="truncate text-xs text-muted">{nextUpcomingAppointment.service}</p>
+                      </div>
+                      <button aria-label="Editeaza urmatoarea programare" onClick={() => startEditAppointment(nextUpcomingAppointment)} type="button">Editeaza</button>
+                    </div>
+                  ) : <p className="mt-2 text-sm text-muted">Nu exista o programare viitoare.</p>}
+                </div>
+              </>
+            ) : null}
 
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
@@ -3950,7 +3986,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="mt-5">
+            {!newUI ? <div className="mt-5">
               <p className="mb-2 text-sm text-muted">Ziua selectata</p>
               <button
                 className="w-full rounded-[8px] border border-line bg-black px-3 py-3 text-left"
@@ -3959,7 +3995,7 @@ export default function Home() {
               >
                 {humanDate(appointmentDate)}
               </button>
-            </div>
+            </div> : null}
 
             {!isOnline ? (
               <div className="mt-4 rounded-[8px] border border-line bg-black px-4 py-3 text-sm text-[#ddd4c5]">
@@ -6271,7 +6307,7 @@ export default function Home() {
           </div>
         ) : null}
 
-        <nav className="gold-ring fixed inset-x-4 bottom-4 mx-auto grid w-full max-w-md grid-cols-6 items-center gap-1 rounded-[8px] border border-line bg-black/95 px-2 py-2 backdrop-blur">
+        <nav aria-label="Navigare principala" className="gold-ring fixed inset-x-4 bottom-4 mx-auto grid w-full max-w-md grid-cols-6 items-center gap-1 rounded-[8px] border border-line bg-black/95 px-2 py-2 backdrop-blur" data-ui="bottom-nav">
           {[
             {
               label: "Acasa",
