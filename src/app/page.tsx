@@ -2400,7 +2400,7 @@ export default function Home() {
       }
       setLastBackupPath(result.path ?? "");
       setToast({
-        text: "Backup cloud creat cu succes.",
+        text: "Exportul cloud a fost verificat. Pastreaza si un backup nativ al bazei de date.",
         type: "success",
       });
     } catch (error) {
@@ -5845,7 +5845,7 @@ export default function Home() {
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
               <p className="text-sm font-semibold">Backup cloud automat</p>
               <p className="mt-2 text-sm text-[#ddd4c5]">
-                Se face zilnic automat in cloud si poti porni manual backup oricand.
+                Exportul programat acopera tabelele aplicatiei si poate fi pornit manual. Nu include schema bazei de date sau setarile pastrate pe dispozitiv.
               </p>
               <button
                 className="mt-3 w-full rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
