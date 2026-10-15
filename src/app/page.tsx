@@ -2246,6 +2246,7 @@ export default function Home() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token ?? ""}`,
         },
         body: JSON.stringify({ subscription }),
       });
@@ -2281,13 +2282,15 @@ export default function Home() {
       const subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {
-        await fetch("/api/push/unsubscribe", {
+        const response = await fetch("/api/push/unsubscribe", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token ?? ""}`,
           },
           body: JSON.stringify({ endpoint: subscription.endpoint }),
         });
+        if (!response.ok) throw new Error("Failed unsubscribe");
         await subscription.unsubscribe();
       }
 
@@ -2654,6 +2657,20 @@ export default function Home() {
   };
 
   const handleDeleteClient = async (clientId: number) => {
+    if (appointments.some((appointment) => appointment.clientId === clientId)) {
+      setToast({ text: "Clienta are istoric de programari si nu poate fi stearsa.", type: "error" });
+      return;
+    }
+    if (isSupabaseConfigured && supabase && session && isOnline && clientId > 0) {
+      const related = await supabase
+        .from("appointments")
+        .select("id", { head: true, count: "exact" })
+        .eq("client_id", clientId);
+      if (related.error || related.count === null || related.count > 0) {
+        setToast({ text: "Nu pot verifica istoricul. Stergerea a fost oprita.", type: "error" });
+        return;
+      }
+    }
     if (!confirm("Sigur vrei sa stergi clienta?")) {
       return;
     }

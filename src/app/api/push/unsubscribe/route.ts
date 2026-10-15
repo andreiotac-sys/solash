@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { getServerSupabase, isPushConfigured } from "@/lib/push-server";
+import { isAuthenticatedRequest } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  if (!(await isAuthenticatedRequest(request))) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
   if (!isPushConfigured) {
     return NextResponse.json(
       { ok: false, error: "Push config missing." },
