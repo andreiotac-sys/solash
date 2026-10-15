@@ -17,6 +17,13 @@ import {
   mapServiceRow,
 } from "@/lib/demo-data";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import {
+  checkBooking,
+  getWorkWindowsForDate,
+  parseDurationToMinutes,
+  timeToMinutes,
+} from "@/lib/scheduling";
+import type { BusinessSettings, DayBusinessSettings } from "@/lib/scheduling";
 import type {
   Appointment,
   Client,
@@ -29,7 +36,6 @@ import type {
 const STORAGE_KEY = "solash-demo-store";
 const OFFLINE_QUEUE_KEY = "solash-offline-queue";
 const BUSINESS_SETTINGS_KEY = "solash-business-settings";
-const BUSINESS_BREAKS_DISABLED_KEY = "solash-business-breaks-disabled-v2";
 const WHATSAPP_TEMPLATE_KEY = "solash-whatsapp-template";
 const PERSONAL_CLIENT_MARKER = "[solash-personal-client]";
 const PERSONAL_BLOCK_MARKER = "[solash-personal-block]";
@@ -111,20 +117,6 @@ type CalendarCreateDrag = {
   startedAt: number;
   active: boolean;
 };
-type DayBusinessSettings = {
-  enabled: boolean;
-  hasBreak: boolean;
-  start: string;
-  end: string;
-  breakStart: string;
-  breakEnd: string;
-};
-
-type BusinessSettings = {
-  schedule: Record<number, DayBusinessSettings>;
-  daysOff: string[];
-};
-
 const todayIso = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -203,26 +195,6 @@ const daysToHuman = (days: number) => {
   return `${days} zile`;
 };
 
-const parseDurationToMinutes = (value: string) => {
-  const normalized = value.trim().toLowerCase();
-  const hourMatch = normalized.match(/(\d+)\s*h/);
-  const minuteMatch = normalized.match(/(\d+)\s*m/);
-
-  if (hourMatch || minuteMatch) {
-    const hours = hourMatch ? Number(hourMatch[1]) : 0;
-    const minutes = minuteMatch ? Number(minuteMatch[1]) : 0;
-    return hours * 60 + minutes;
-  }
-
-  const numeric = Number(normalized);
-  return Number.isFinite(numeric) ? numeric : 0;
-};
-
-const timeToMinutes = (time: string) => {
-  const [hours, minutes] = time.split(":").map(Number);
-  return hours * 60 + minutes;
-};
-
 const minutesToTime = (total: number) => {
   const hours = Math.floor(total / 60);
   const minutes = total % 60;
@@ -255,48 +227,6 @@ const sortAppointmentsByDateTime = (items: Appointment[]) =>
     }
     return a.date.localeCompare(b.date);
   });
-
-const dateToWeekdayKey = (isoDate: string) =>
-  (new Date(`${isoDate}T12:00:00`).getDay() + 6) % 7;
-
-const getWorkWindowsForDate = (isoDate: string, settings: BusinessSettings) => {
-  if (settings.daysOff.includes(isoDate)) {
-    return [];
-  }
-
-  const weekdayKey = dateToWeekdayKey(isoDate);
-  const day = settings.schedule[weekdayKey];
-  if (!day || !day.enabled) {
-    return [];
-  }
-
-  const start = timeToMinutes(day.start);
-  const end = timeToMinutes(day.end);
-  if (end <= start) {
-    return [];
-  }
-
-  const breakStart = timeToMinutes(day.breakStart);
-  const breakEnd = timeToMinutes(day.breakEnd);
-  const hasValidBreak =
-    day.hasBreak &&
-    breakEnd > breakStart &&
-    breakStart > start &&
-    breakEnd < end;
-
-  if (!hasValidBreak) {
-    return [{ start, end }];
-  }
-
-  const windows: Array<{ start: number; end: number }> = [];
-  if (breakStart > start) {
-    windows.push({ start, end: breakStart });
-  }
-  if (end > breakEnd) {
-    windows.push({ start: breakEnd, end });
-  }
-  return windows;
-};
 
 const getOverlapMinutesInWindows = (
   intervalStart: number,
@@ -422,7 +352,8 @@ const defaultBusinessSettings = (): BusinessSettings => ({
   daysOff: [],
 });
 
-const normalizeTimeInput = (value: string, fallback: string) => {
+const normalizeTimeInput = (value: unknown, fallback: string) => {
+  if (typeof value !== "string") return fallback;
   const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!match) {
     return fallback;
@@ -467,32 +398,6 @@ const normalizeBusinessSettings = (input?: Partial<BusinessSettings> | null): Bu
   return { schedule, daysOff };
 };
 
-const disableAllBreaks = (settings: BusinessSettings): BusinessSettings => ({
-  ...settings,
-  schedule: WEEK_DAYS.reduce<Record<number, DayBusinessSettings>>((acc, day) => {
-    acc[day.key] = {
-      ...settings.schedule[day.key],
-      hasBreak: false,
-    };
-    return acc;
-  }, {}),
-});
-
-const applyBusinessSettingsMigrations = (settings: BusinessSettings): BusinessSettings => {
-  if (typeof window === "undefined") {
-    return settings;
-  }
-
-  if (window.localStorage.getItem(BUSINESS_BREAKS_DISABLED_KEY)) {
-    return settings;
-  }
-
-  const migrated = disableAllBreaks(settings);
-  window.localStorage.setItem(BUSINESS_BREAKS_DISABLED_KEY, "true");
-  window.localStorage.setItem(BUSINESS_SETTINGS_KEY, JSON.stringify(migrated));
-  return migrated;
-};
-
 const readBusinessSettings = (): BusinessSettings => {
   if (typeof window === "undefined") {
     return defaultBusinessSettings();
@@ -500,14 +405,14 @@ const readBusinessSettings = (): BusinessSettings => {
 
   const raw = window.localStorage.getItem(BUSINESS_SETTINGS_KEY);
   if (!raw) {
-    return applyBusinessSettingsMigrations(defaultBusinessSettings());
+    return defaultBusinessSettings();
   }
 
   try {
     const parsed = JSON.parse(raw) as Partial<BusinessSettings>;
-    return applyBusinessSettingsMigrations(normalizeBusinessSettings(parsed));
+    return normalizeBusinessSettings(parsed);
   } catch {
-    return applyBusinessSettingsMigrations(defaultBusinessSettings());
+    return defaultBusinessSettings();
   }
 };
 
@@ -2168,30 +2073,18 @@ export default function Home() {
 
   const hasConflict = (
     id: number | null,
+    date: string,
     newStart: string,
     newDuration: string,
     existing: Appointment[]
-  ) => {
-    const toMinutes = (time: string) => {
-      const [hours, minutes] = time.split(":").map(Number);
-      return hours * 60 + minutes;
-    };
-
-    const newStartMin = toMinutes(newStart);
-    const newEndMin = newStartMin + parseDurationToMinutes(newDuration);
-
-    return existing.some((appointment) => {
-      if (id && appointment.id === id) {
-        return false;
-      }
-      if (isCancelledAppointment(appointment)) {
-        return false;
-      }
-      const start = toMinutes(appointment.start);
-      const end = start + parseDurationToMinutes(appointment.duration);
-      return newStartMin < end && newEndMin > start;
-    });
-  };
+  ) => checkBooking({
+    date,
+    start: newStart,
+    duration: newDuration,
+    editingId: id,
+    appointments: existing,
+    settings: businessSettings,
+  }).kind === "conflict";
 
   const fitsInsideWorkWindows = (
     date: string,
@@ -2216,10 +2109,14 @@ export default function Home() {
     }
 
     if (!fitsInsideWorkWindows(appointmentDate, appointmentTime, appointmentDuration)) {
+      const windows = getWorkWindowsForDate(appointmentDate, businessSettings);
+      const configuredHours = windows.length
+        ? windows.map((windowRange) => `${minutesToTime(windowRange.start)}–${minutesToTime(windowRange.end)}`).join(", ")
+        : "zi nelucratoare";
       details.push(
         `Intervalul ${appointmentTime} - ${minutesToTime(
           timeToMinutes(appointmentTime) + parseDurationToMinutes(appointmentDuration)
-        )} nu incape in programul setat pentru ${fullDateLabel(appointmentDate)}.`
+        )} nu incape in programul setat pentru ${fullDateLabel(appointmentDate)} (${configuredHours}).`
       );
     }
 
@@ -2815,19 +2712,21 @@ export default function Home() {
       return;
     }
 
-    const dayAppointments = appointments.filter(
-      (appointment) => appointment.date === appointmentDate
-    );
-    if (
-      hasConflict(
-        editingAppointmentId,
-        appointmentTime,
-        appointmentDuration,
-        dayAppointments
-      )
-    ) {
+    const bookingCheck = checkBooking({
+      date: appointmentDate,
+      start: appointmentTime,
+      duration: appointmentDuration,
+      editingId: editingAppointmentId,
+      appointments,
+      settings: businessSettings,
+    });
+    if (bookingCheck.kind === "invalid") {
+      setToast({ text: "Data, ora sau durata programarii este invalida.", type: "error" });
+      return;
+    }
+    if (bookingCheck.kind === "conflict") {
       setToast({
-        text: "Exista deja o programare care se suprapune in acel interval.",
+        text: "Intervalul se suprapune cu o alta programare sau un blocaj personal.",
         type: "error",
       });
       return;
@@ -3036,7 +2935,7 @@ export default function Home() {
     const dayAppointments = appointments.filter(
       (appointment) => appointment.date === personalBlockDate
     );
-    if (hasConflict(null, personalBlockTime, personalBlockDuration, dayAppointments)) {
+    if (hasConflict(null, personalBlockDate, personalBlockTime, personalBlockDuration, dayAppointments)) {
       setToast({ text: "Blocajul se suprapune cu alta programare.", type: "error" });
       return;
     }
@@ -3183,7 +3082,7 @@ export default function Home() {
     setAppointmentTime(appointment.start);
     setAppointmentDuration(appointment.duration);
     setAppointmentPrice(appointment.price);
-    setAppointmentStatus(normalizedAppointmentStatus(appointment.status));
+    setAppointmentStatus(appointment.status);
     setAppointmentNotes(appointment.notes);
     setAppointmentClientFilter("");
     setScrollToEditorTick((value) => value + 1);
@@ -3203,19 +3102,28 @@ export default function Home() {
     nextDate: string,
     nextStart: string
   ) => {
-    if (!fitsInsideWorkWindows(nextDate, nextStart, appointment.duration)) {
-      setToast({
-        text: "Nu pot muta programarea in afara programului sau peste pauza.",
-        type: "error",
-      });
+    const moveCheck = checkBooking({
+      date: nextDate,
+      start: nextStart,
+      duration: appointment.duration,
+      editingId: appointment.id,
+      appointments,
+      settings: businessSettings,
+    });
+    if (moveCheck.kind === "invalid") {
+      setToast({ text: "Data, ora sau durata programarii este invalida.", type: "error" });
       return;
     }
-
-    const dayAppointments = appointments.filter((item) => item.date === nextDate);
-    if (hasConflict(appointment.id, nextStart, appointment.duration, dayAppointments)) {
-      setToast({ text: "Nu pot muta programarea: se suprapune cu alta.", type: "error" });
+    if (moveCheck.kind === "conflict") {
+      setToast({ text: "Intervalul se suprapune cu o alta programare sau un blocaj personal.", type: "error" });
       return;
     }
+    if (moveCheck.kind === "outside_hours" && !window.confirm(
+      "Programarea este in afara programului configurat pentru aceasta zi. Vrei sa continui?"
+    )) {
+      return;
+    }
+    /* A confirmed working-hours exception must still pass the conflict check above. */
 
     const updated = { ...appointment, date: nextDate, start: nextStart };
     const previousAppointments = appointments;
@@ -3499,7 +3407,7 @@ export default function Home() {
       (appointment) => appointment.date === appointmentDate
     );
 
-    if (hasConflict(null, startTime, duration, dayAppointments)) {
+    if (hasConflict(null, appointmentDate, startTime, duration, dayAppointments)) {
       setToast({ text: "Intervalul ales se suprapune cu alta programare.", type: "error" });
       return;
     }
@@ -5070,6 +4978,10 @@ export default function Home() {
                         }
                         value={appointmentStatus}
                       >
+                        {appointmentStatus !== ACTIVE_APPOINTMENT_STATUS &&
+                        appointmentStatus !== CANCELLED_APPOINTMENT_STATUS ? (
+                          <option value={appointmentStatus}>{appointmentStatus}</option>
+                        ) : null}
                         <option value={ACTIVE_APPOINTMENT_STATUS}>Programata</option>
                         <option value={CANCELLED_APPOINTMENT_STATUS}>Anulata</option>
                       </select>
