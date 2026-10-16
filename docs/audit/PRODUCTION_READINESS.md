@@ -13,6 +13,8 @@
 | Migrări propuse și teste SQL | `56262fc65f23c624c04d0ee6d1c715797d7260c9` |
 | Dependențe, backup XLSX și build reproductibil | `a506bfda46e426b25690eea293b3ee9b7acae3bc` |
 | Protecții în interfață și corecții calendar | `8d3a2f181ff1a30273d9ebc3f27776ae38d0c0e8` |
+| Raport și dovezi de pregătire | `e3cd72be542b846b7c32655d728f291f87426c3f` |
+| Versiuni Next fixate exact | `c871acd775541415a4993024f894138fc9334903` |
 
 Ramura și cele opt commituri anterioare se păstrează integral. Intervalul exact al ramurii este `solash-production-baseline-20261015..HEAD`; `git log --reverse --format='%H %s' solash-production-baseline-20261015..HEAD` afișează toate SHA-urile, inclusiv commitul care salvează acest raport. Nu s-a făcut push la `main`, merge, deployment sau schimbare a schemei ori a rândurilor din tabelele aplicației de producție. Fișierele private deja existente, neînregistrate în Git, au rămas în afara modificărilor.
 
