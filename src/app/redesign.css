@@ -214,3 +214,16 @@ html:has(.solash-v2), body:has(.solash-v2) { background: #fff8fb; }
 @media (prefers-reduced-motion: reduce) {
   .solash-v2 *, .solash-v2 *::before, .solash-v2 *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Direct actions remain usable in both frontend versions. */
+.appointment-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 auto; border: 1px solid #d5c6dc; border-radius: 10px; background: #fff; color: #493354; cursor: pointer; }
+.appointment-icon svg { width: 18px; height: 18px; }
+.appointment-icon-danger { color: #a32450; border-color: #ecc5d2; }
+.appointment-icon:disabled { opacity: .4; cursor: default; }
+.appointment-icon:focus-visible { outline: 3px solid #bd2465; outline-offset: 2px; }
+.studio-brand-symbol { width: 52px; height: 46px; border-radius: 16px; background: linear-gradient(135deg, #fce0ed, #eee3ff); }
+.studio-brand-symbol svg { width: 47px; height: 38px; }
+[data-calendar-appointment][data-compact="true"] .appointment-icon { width: 28px; height: 28px; border-radius: 6px; }
+[data-calendar-appointment][data-compact="true"] .appointment-icon svg { width: 16px; height: 16px; }
+.appointment-cancel-dialog { position: fixed; inset: 0; margin: auto; width: min(390px, calc(100vw - 32px)); }
+.appointment-cancel-dialog::backdrop { background: #1f142c99; }

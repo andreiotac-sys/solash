@@ -60,8 +60,10 @@ function StudioBrand() {
   return (
     <div className="studio-brand" aria-label="SoLash, beauty studio">
       <span className="studio-brand-symbol" aria-hidden="true">
-        <svg viewBox="0 0 40 40" fill="none">
-          <path d="M20 20C7 20 5 7 12 6c6-1 8 7 8 14Zm0 0c0-13 13-15 14-8 1 6-7 8-14 8Zm0 0c13 0 15 13 8 14-6 1-8-7-8-14Zm0 0c0 13-13 15-14 8-1-6 7-8 14-8Z" fill="currentColor" />
+        <svg viewBox="0 0 64 48" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 19c11 15 35 15 46 0" strokeWidth="3.4" />
+          <path d="m12 23-5 6m12-1-4 8m11-6-1 9m10-9 1 9m7-11 4 8m4-13 6 6" />
+          <path d="m47 7 1.5 3.5L52 12l-3.5 1.5L47 17l-1.5-3.5L42 12l3.5-1.5Z" fill="currentColor" stroke="none" />
         </svg>
       </span>
       <div>
@@ -69,6 +71,29 @@ function StudioBrand() {
         <p className="studio-brand-caption">BEAUTY STUDIO</p>
       </div>
     </div>
+  );
+}
+
+function AppointmentCancelDialog({ appointment, busy, onDismiss, onConfirm }: {
+  appointment: Appointment;
+  busy: boolean;
+  onDismiss: () => void;
+  onConfirm: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (!ref.current?.open) ref.current?.showModal();
+  }, []);
+  return (
+    <dialog ref={ref} className="appointment-cancel-dialog rounded-2xl border border-line bg-panel p-5 text-foreground shadow-xl" aria-labelledby="cancel-title" aria-describedby="cancel-description" onCancel={(event) => { if (busy) event.preventDefault(); else onDismiss(); }}>
+      <h2 id="cancel-title" className="text-lg font-semibold">Anulezi programarea?</h2>
+      <p className="mt-2 text-sm">{appointment.clientName} • {formatShortDate(appointment.date)} • {appointment.start}</p>
+      <p id="cancel-description" className="mt-3 text-sm text-muted">Intervalul se eliberează. Programarea și istoricul clientei se păstrează.</p>
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <button type="button" className="rounded-[8px] border border-line px-3 py-3 text-sm" disabled={busy} onClick={onDismiss}>Păstrează</button>
+        <button type="button" className="rounded-[8px] bg-gold px-3 py-3 text-sm font-semibold text-black" disabled={busy} onClick={onConfirm}>{busy ? "Se anulează…" : "Anulează programarea"}</button>
+      </div>
+    </dialog>
   );
 }
 
@@ -97,7 +122,7 @@ type OfflineOp =
   | { type: "delete_service"; id: number };
 
 type TabKey = "home" | "month" | "appointments" | "clients" | "reports" | "settings";
-type PanelKey = "appointment" | "client";
+type PanelKey = "appointment" | "personal" | "client";
 type PushLog = {
   id: number;
   source: string;
@@ -600,6 +625,8 @@ export default function Home() {
   const calendarMoveHoldTimerRef = useRef<number | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("home");
+  const [cancellationTarget, setCancellationTarget] = useState<Appointment | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [activePanel, setActivePanel] = useState<PanelKey>("appointment");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -672,6 +699,7 @@ export default function Home() {
     readBusinessSettings()
   );
   const [daysOffInput, setDaysOffInput] = useState(() => readBusinessSettings().daysOff.join(", "));
+  const [editingPersonalBlockId, setEditingPersonalBlockId] = useState<number | null>(null);
   const [personalBlockTitle, setPersonalBlockTitle] = useState("");
   const [personalBlockDate, setPersonalBlockDate] = useState(todayIso());
   const [personalBlockTime, setPersonalBlockTime] = useState("10:00");
@@ -945,7 +973,7 @@ export default function Home() {
     const first = window.requestAnimationFrame(() => {
       const second = window.requestAnimationFrame(() => {
         const target =
-          activePanel === "appointment"
+          activePanel !== "client"
             ? appointmentFormCardRef.current
             : appointmentEditorRef.current;
         target?.scrollIntoView({
@@ -2066,6 +2094,20 @@ export default function Home() {
     setAppointmentClientFilter("");
   };
 
+  const selectBookingPanel = (panel: PanelKey) => {
+    if (panel === "personal" && activePanel !== "personal") {
+      setEditingPersonalBlockId(null);
+      setPersonalBlockDate(appointmentDate);
+      setPersonalBlockTime(appointmentTime);
+      setPersonalBlockDuration(appointmentDuration);
+    } else if (activePanel === "personal" && panel === "appointment") {
+      setAppointmentDate(personalBlockDate);
+      setAppointmentTime(personalBlockTime);
+      setAppointmentDuration(personalBlockDuration);
+    }
+    setActivePanel(panel);
+  };
+
   const resetClientForm = () => {
     setEditingClientId(null);
     setClientName("");
@@ -2958,6 +3000,7 @@ export default function Home() {
 
   const handleSavePersonalBlock = async () => {
     const title = personalBlockTitle.trim();
+    const blockStatus = appointments.find((item) => item.id === editingPersonalBlockId)?.status ?? ACTIVE_APPOINTMENT_STATUS;
     const durationMinutes = parseDurationToMinutes(personalBlockDuration);
     if (!title) {
       setToast({ text: "Scrie cum vrei sa apara blocajul in calendar.", type: "error" });
@@ -2976,7 +3019,7 @@ export default function Home() {
     const dayAppointments = appointments.filter(
       (appointment) => appointment.date === personalBlockDate
     );
-    if (hasConflict(null, personalBlockDate, personalBlockTime, personalBlockDuration, dayAppointments)) {
+    if (hasConflict(editingPersonalBlockId, personalBlockDate, personalBlockTime, personalBlockDuration, dayAppointments)) {
       setToast({ text: "Blocajul se suprapune cu alta programare.", type: "error" });
       return;
     }
@@ -2994,7 +3037,7 @@ export default function Home() {
     let targetClient = findPersonalClient(clients);
     let nextClients = clients;
 
-    if (!isSupabaseConfigured || !supabase || !session || !isOnline) {
+    if (!isSupabaseConfigured || !supabase || !session || !isOnline || (editingPersonalBlockId !== null && editingPersonalBlockId < 0)) {
       if (!targetClient) {
         const tempClientId = isSupabaseConfigured ? nextTempId() : Date.now();
         targetClient = {
@@ -3015,7 +3058,7 @@ export default function Home() {
       }
 
       const personalAppointment: Appointment = {
-        id: isSupabaseConfigured ? nextTempId() - 1 : Date.now(),
+        id: editingPersonalBlockId ?? (isSupabaseConfigured ? nextTempId() - 1 : Date.now()),
         clientId: targetClient.id,
         clientName: targetClient.name,
         service: PERSONAL_BLOCK_SERVICE,
@@ -3024,11 +3067,11 @@ export default function Home() {
         duration: personalBlockDuration,
         price: 0,
         phone: targetClient.phone,
-        status: ACTIVE_APPOINTMENT_STATUS,
+        status: blockStatus,
         notes: `${PERSONAL_BLOCK_MARKER} ${title}`,
       };
       const nextAppointments = sortAppointmentsByDateTime([
-        ...appointments,
+        ...appointments.filter((item) => item.id !== editingPersonalBlockId),
         personalAppointment,
       ]);
       setAppointments(nextAppointments);
@@ -3040,7 +3083,7 @@ export default function Home() {
         text:
           !isOnline && isSupabaseConfigured
             ? "Blocaj salvat offline. Se sincronizeaza la reconectare."
-            : "Blocajul personal a fost adaugat.",
+            : editingPersonalBlockId === null ? "Blocajul personal a fost adaugat." : "Blocajul personal a fost actualizat.",
         type: "success",
       });
       setIsSavingPersonalBlock(false);
@@ -3080,16 +3123,16 @@ export default function Home() {
       start_time: personalBlockTime,
       duration: personalBlockDuration,
       price: 0,
-      status: ACTIVE_APPOINTMENT_STATUS,
+      status: blockStatus,
     };
 
-    const response = await supabase
-      .from("appointments")
-      .insert(
-        supportsAppointmentNotes
-          ? { ...payloadBase, notes: `${PERSONAL_BLOCK_MARKER} ${title}` }
-          : payloadBase
-      )
+    const payload = supportsAppointmentNotes
+      ? { ...payloadBase, notes: `${PERSONAL_BLOCK_MARKER} ${title}` }
+      : payloadBase;
+    const mutation = editingPersonalBlockId === null
+      ? supabase.from("appointments").insert(payload)
+      : supabase.from("appointments").update(payload).eq("id", editingPersonalBlockId);
+    const response = await mutation
       .select(
         supportsAppointmentNotes
           ? APPOINTMENT_SELECT_WITH_NOTES
@@ -3107,12 +3150,97 @@ export default function Home() {
       ? (response.data as unknown as SupabaseAppointmentRow)
       : ({ ...(response.data as object), notes: `${PERSONAL_BLOCK_MARKER} ${title}` } as SupabaseAppointmentRow);
     const newAppointment = mapAppointmentRow(row);
-    setAppointments((current) => sortAppointmentsByDateTime([...current, newAppointment]));
-    setToast({ text: "Blocajul personal a fost adaugat.", type: "success" });
+    setAppointments((current) => sortAppointmentsByDateTime([...current.filter((item) => item.id !== editingPersonalBlockId), newAppointment]));
+    setToast({ text: editingPersonalBlockId === null ? "Blocajul personal a fost adaugat." : "Blocajul personal a fost actualizat.", type: "success" });
     setIsSavingPersonalBlock(false);
   };
 
+  const renderPersonalBlockForm = () => (
+              <div className="mt-3 grid gap-3">
+                {editingPersonalBlockId !== null ? <div className="flex items-center justify-between gap-2 text-sm"><span>Editezi un blocaj existent</span><button type="button" className="rounded-[8px] border border-line px-3 py-2" onClick={() => { setEditingPersonalBlockId(null); setPersonalBlockTitle(""); }}>Blocaj nou</button></div> : null}
+                <div className="flex flex-wrap gap-2" aria-label="Denumiri pentru blocaj">
+                  {Array.from(new Set([...LEGACY_PERSONAL_BLOCK_PRESETS, ...personalBlocks.map((block) => block.clientName)])).map((title) => (
+                    <button key={title} type="button" className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm" onClick={() => setPersonalBlockTitle(title)}>{title}</button>
+                  ))}
+                </div>
+                <label className="grid gap-2 text-sm">
+                  <span className="text-muted">Cum apare in calendar</span>
+                  <input
+                    className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
+                    onChange={(event) => setPersonalBlockTitle(event.target.value)}
+                    placeholder="Ex: treaba mea, pauza, cumparaturi"
+                    value={personalBlockTitle}
+                  />
+                </label>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+                  <label className="grid min-w-0 gap-2 text-sm">
+                    <span className="text-muted">Data</span>
+                    <input
+                      className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
+                      onChange={(event) => setPersonalBlockDate(event.target.value)}
+                      type="date"
+                      value={personalBlockDate}
+                    />
+                  </label>
+                  <label className="grid min-w-0 gap-2 text-sm">
+                    <span className="text-muted">Ora</span>
+                    <input
+                      className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
+                      onChange={(event) => setPersonalBlockTime(event.target.value)}
+                      type="time"
+                      value={personalBlockTime}
+                    />
+                  </label>
+                </div>
+                <label className="grid gap-2 text-sm">
+                  <span className="text-muted">Durata</span>
+                  <input
+                    className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
+                    onChange={(event) => setPersonalBlockDuration(event.target.value)}
+                    placeholder="1h30min"
+                    value={personalBlockDuration}
+                  />
+                </label>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {QUICK_DURATIONS.map((duration) => (
+                    <button
+                      className={`shrink-0 rounded-[8px] border px-3 py-2 text-xs font-semibold ${
+                        personalBlockDuration === duration
+                          ? "border-gold bg-gold text-black"
+                          : "border-[#3f3522] bg-black/70 text-[#ddd4c5]"
+                      }`}
+                      key={`personal-${duration}`}
+                      onClick={() => setPersonalBlockDuration(duration)}
+                      type="button"
+                    >
+                      {duration}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
+                  disabled={isSavingPersonalBlock}
+                  onClick={() => void handleSavePersonalBlock()}
+                  type="button"
+                >
+                  {isSavingPersonalBlock ? "Se salveaza..." : editingPersonalBlockId === null ? "Adauga blocaj in calendar" : "Actualizeaza blocajul"}
+                </button>
+              </div>
+  );
+
   const startEditAppointment = (appointment: Appointment) => {
+    setAppointmentHistoryOpen(false);
+    if (isPersonalBlock(appointment)) {
+      setActiveTab("appointments");
+      setActivePanel("personal");
+      setEditingPersonalBlockId(appointment.id);
+      setPersonalBlockTitle(appointment.clientName);
+      setPersonalBlockDate(appointment.date);
+      setPersonalBlockTime(appointment.start);
+      setPersonalBlockDuration(appointment.duration);
+      setScrollToEditorTick((value) => value + 1);
+      return;
+    }
     setActiveTab("appointments");
     setActivePanel("appointment");
     setEditingAppointmentId(appointment.id);
@@ -3517,7 +3645,7 @@ export default function Home() {
 
     const shouldActivate =
       calendarCreateDrag.active ||
-      (Date.now() - calendarCreateDrag.startedAt > CALENDAR_CREATE_HOLD_MS &&
+      ((event.pointerType === "mouse" || Date.now() - calendarCreateDrag.startedAt > CALENDAR_CREATE_HOLD_MS) &&
         Math.abs(event.clientY - calendarCreateDrag.originY) > 6);
 
     event.preventDefault();
@@ -3551,7 +3679,7 @@ export default function Home() {
 
     const wasActive =
       calendarCreateDrag.active ||
-      (Date.now() - calendarCreateDrag.startedAt > CALENDAR_CREATE_HOLD_MS &&
+      ((event.pointerType === "mouse" || Date.now() - calendarCreateDrag.startedAt > CALENDAR_CREATE_HOLD_MS) &&
         Math.abs(event.clientY - calendarCreateDrag.originY) > 6);
     const endMinutes = getTimelineMinuteFromClientY(event.clientY);
     let startMinutes = Math.min(calendarCreateDrag.startMinutes, endMinutes);
@@ -3659,6 +3787,23 @@ export default function Home() {
     );
     setToast({ text: `Programarea este acum ${nextStatus.toLowerCase()}.`, type: "success" });
   };
+
+  const renderAppointmentActions = (appointment: Appointment) => (
+    <div className="appointment-actions flex shrink-0 gap-1" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+      <button type="button" className="appointment-icon" aria-label={`Editează ${appointment.clientName}, ${appointment.date} ${appointment.start}`} title="Editează programarea" onClick={() => startEditAppointment(appointment)}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m16 3 5 5-12 12-6 1 1-6Z" /><path d="m14 5 5 5" /></svg>
+      </button>
+      <button type="button" className="appointment-icon appointment-icon-danger" disabled={!isPersonalBlock(appointment) && isCancelledAppointment(appointment)} aria-label={`${isPersonalBlock(appointment) ? "Șterge blocajul" : "Anulează cu păstrarea istoricului"}: ${appointment.clientName}, ${appointment.date} ${appointment.start}`} title={isPersonalBlock(appointment) ? "Șterge blocajul" : isCancelledAppointment(appointment) ? "Programare deja anulată" : "Anulează • păstrează istoricul"} onClick={() => {
+        if (isPersonalBlock(appointment)) {
+          void handleDeleteAppointment(appointment.id);
+        } else {
+          setCancellationTarget(appointment);
+        }
+      }}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7" /></svg>
+      </button>
+    </div>
+  );
 
   const handleShiftAppointmentMinutes = async (appointment: Appointment, minutes: number) => {
     const nextStartMinutes = timeToMinutes(appointment.start) + minutes;
@@ -4090,6 +4235,16 @@ export default function Home() {
           </div>
         ) : null}
 
+        {cancellationTarget ? <AppointmentCancelDialog appointment={cancellationTarget} busy={isCancelling} onDismiss={() => setCancellationTarget(null)} onConfirm={async () => {
+          setIsCancelling(true);
+          try {
+            await handleUpdateStatus(cancellationTarget.id, CANCELLED_APPOINTMENT_STATUS);
+            setCancellationTarget(null);
+          } finally {
+            setIsCancelling(false);
+          }
+        }} /> : null}
+
         {saveWarning ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" data-ui="dialog-backdrop">
             <div className="gold-ring w-full max-w-sm rounded-[8px] border border-line bg-panel p-5">
@@ -4290,7 +4445,7 @@ export default function Home() {
                       <p className="text-xs font-semibold uppercase tracking-wide text-gold">Exceptie de program</p>
                       <p className="mt-1 text-sm font-semibold">{appointment.start} - {minutesToTime(timeToMinutes(appointment.start) + parseDurationToMinutes(appointment.duration))} · {appointment.clientName}</p>
                       <p className="mt-1 text-xs text-muted">{appointment.service}</p>
-                      <button className="mt-2 rounded-[8px] border border-gold/50 px-3 py-2 text-xs font-semibold" onClick={() => startEditAppointment(appointment)} type="button">Editeaza</button>
+                      <div className="mt-2">{renderAppointmentActions(appointment)}</div>
                     </div>
                   ))}
                   {dayTimeline.segments.length > 0 ? (
@@ -4377,13 +4532,7 @@ export default function Home() {
                                 >
                                   {isMoving ? "Selectata" : "Muta"}
                                 </button>
-                                <button
-                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
-                                  onClick={() => startEditAppointment(segment.appointment)}
-                                  type="button"
-                                >
-                                  Editeaza
-                                </button>
+                                {renderAppointmentActions(segment.appointment)}
                               </div>
                             </div>
                           );
@@ -4743,6 +4892,7 @@ export default function Home() {
                       <div
                         key={`calendar-block-${appointment.id}`}
                         data-calendar-appointment
+                        data-compact={isCompact}
                         className={`absolute left-[76px] right-3 select-none overflow-hidden rounded-[8px] border shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
                           isMoving ? "z-20 ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
                         } ${isCompact ? "px-2 py-1" : "px-3 py-2"}`}
@@ -4783,29 +4933,7 @@ export default function Home() {
                               >
                                 WA
                               </button>
-                              <button
-                                className="rounded-[6px] border border-line bg-white/75 px-2 py-1 text-[10px] font-semibold text-[#1f1a12]"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setActiveTab("appointments");
-                                  startEditAppointment(appointment);
-                                }}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                type="button"
-                              >
-                                Edit
-                              </button>
-                              {(!isSupabaseConfigured || isPersonalBlock(appointment)) && <button
-                                className="rounded-[6px] border border-[#7a3131] bg-[#3a1515] px-2 py-1 text-[10px] font-semibold text-[#ffd1d1]"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleDeleteAppointment(appointment.id);
-                                }}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                type="button"
-                              >
-                                X
-                              </button>}
+                              {renderAppointmentActions(appointment)}
                             </div>
                           </div>
                         ) : (
@@ -4824,17 +4952,6 @@ export default function Home() {
                               </p>
                             </div>
                             <div className="mt-2 flex gap-2">
-                              {(!isSupabaseConfigured || isPersonalBlock(appointment)) && <button
-                                className="rounded-[8px] border border-[#7a3131] bg-[#3a1515] px-2 py-1 text-xs font-semibold text-[#ffd1d1]"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleDeleteAppointment(appointment.id);
-                                }}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                type="button"
-                              >
-                                Sterge
-                              </button>}
                               <button
                                 className="rounded-[8px] border border-[#2e6d51] bg-[#14382a] px-2 py-1 text-xs font-semibold text-[#b8ffd9]"
                                 onClick={(event) => {
@@ -4846,18 +4963,7 @@ export default function Home() {
                               >
                                 WhatsApp
                               </button>
-                              <button
-                                className="rounded-[8px] border border-line bg-white/70 px-2 py-1 text-xs font-semibold text-[#1f1a12]"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setActiveTab("appointments");
-                                  startEditAppointment(appointment);
-                                }}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                type="button"
-                              >
-                                Edit
-                              </button>
+                              {renderAppointmentActions(appointment)}
                             </div>
                           </>
                         )}
@@ -4886,7 +4992,9 @@ export default function Home() {
                     ? editingAppointmentId
                       ? "Editeaza programarea"
                       : "Programare noua"
-                    : editingClientId
+                    : activePanel === "personal"
+                      ? "Blocaj personal"
+                      : editingClientId
                       ? "Editeaza clienta"
                       : "Clienta noua"}
                 </h2>
@@ -4895,17 +5003,24 @@ export default function Home() {
                 </span>
               </div>
 
-              <div className="mb-3 flex gap-3">
+              <div className="mb-3 flex gap-2">
                 <button
                   className={`flex-1 rounded-[8px] px-4 py-3 text-sm font-semibold ${
                     activePanel === "appointment"
                       ? "bg-gold text-black"
                       : "gold-ring border border-line bg-panel text-foreground"
                   }`}
-                  onClick={() => setActivePanel("appointment")}
+                  onClick={() => selectBookingPanel("appointment")}
                   type="button"
                 >
                   Programare
+                </button>
+                <button
+                  className={`flex-1 rounded-[8px] px-3 py-3 text-sm font-semibold ${activePanel === "personal" ? "bg-gold text-black" : "gold-ring border border-line bg-panel text-foreground"}`}
+                  onClick={() => selectBookingPanel("personal")}
+                  type="button"
+                >
+                  Pentru mine
                 </button>
                 <button
                   className={`flex-1 rounded-[8px] px-4 py-3 text-sm font-semibold ${
@@ -5118,6 +5233,11 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+              ) : activePanel === "personal" ? (
+                <div ref={appointmentFormCardRef} className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+                  <p className="text-sm text-muted">Interval personal, fără venit. Data, ora și durata sunt preluate din programare.</p>
+                  {renderPersonalBlockForm()}
+                </div>
               ) : (
                 <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
                   <div className="grid gap-3">
@@ -5215,7 +5335,7 @@ export default function Home() {
               </div>
 
               {appointmentHistoryOpen ? (
-                <div className="gold-ring mb-4 rounded-[8px] border border-line bg-[#202124]">
+                <div role="region" aria-label="Istoricul clientei" className="gold-ring mb-4 rounded-[8px] border border-line bg-[#202124]">
                   <div className="flex items-center justify-between gap-3 border-b border-[#34363a] bg-[#2c2d31] px-3 py-3">
                     {appointmentHistoryClient ? (
                       <button
@@ -5297,30 +5417,24 @@ export default function Home() {
                                     {dateParts.year}
                                   </p>
                                 ) : null}
-                                <button
-                                  className="grid w-full grid-cols-[72px_1fr] items-stretch gap-3 text-left"
-                                  onClick={() => {
-                                    setAppointmentDate(appointment.date);
-                                    startEditAppointment(appointment);
-                                  }}
-                                  type="button"
-                                >
+                                <div className="grid w-full grid-cols-[60px_minmax(0,1fr)] items-stretch gap-2 text-left">
                                   <div className="pt-2 text-center text-[#a8adb5]">
                                     <p className="text-sm lowercase">{dateParts.month}</p>
                                     <p className="mt-1 text-3xl leading-none">{dateParts.day}</p>
                                   </div>
                                   <div className="rounded-[8px] bg-[#54b6df] px-4 py-3 text-[#111820] shadow-sm">
-                                    <p className="truncate text-base font-semibold">
-                                      {appointment.clientName}
-                                    </p>
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="min-w-0 truncate text-base font-semibold">{appointment.clientName}</p>
+                                      {renderAppointmentActions(appointment)}
+                                    </div>
                                     <p className="mt-1 text-sm">
                                       {minutesToTime(start)} - {minutesToTime(end)}
                                     </p>
                                     <p className="mt-2 truncate text-xs opacity-80">
-                                      {appointment.service} • {appointment.duration}
+                                      {appointment.service} • {appointment.duration} • {appointment.status}
                                     </p>
                                   </div>
-                                </button>
+                                </div>
                               </div>
                             );
                           })}
@@ -5438,13 +5552,7 @@ export default function Home() {
                                 >
                                   {isMoving ? "Selectata" : "Muta"}
                                 </button>
-                                <button
-                                  className="rounded-[8px] border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-[#1f1a12]"
-                                  onClick={() => startEditAppointment(segment.appointment)}
-                                  type="button"
-                                >
-                                  Editeaza
-                                </button>
+                                {renderAppointmentActions(segment.appointment)}
                               </div>
                             </div>
                           );
@@ -5472,9 +5580,10 @@ export default function Home() {
                         <p className="text-base font-semibold">{appointment.clientName}</p>
                         <p className="mt-1 text-sm text-[#ddd4c5]">{appointment.service}</p>
                       </div>
-                      <span className={`rounded-[8px] px-2 py-1 text-xs ${statusBadgeClass(appointment.status)}`}>
-                        {statusShortLabel(appointment.status)}
-                      </span>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <span className={`rounded-[8px] px-2 py-1 text-xs ${statusBadgeClass(appointment.status)}`}>{statusShortLabel(appointment.status)}</span>
+                        {renderAppointmentActions(appointment)}
+                      </div>
                     </div>
 
                     <div className="mt-4 grid grid-cols-3 gap-2 text-sm text-muted">
@@ -5559,7 +5668,7 @@ export default function Home() {
                       >
                         Suna
                       </a>
-                      {(!isSupabaseConfigured || isPersonalBlock(appointment)) && <button
+                      {isPersonalBlock(appointment) && <button
                         className="rounded-[8px] bg-[#7b2020] px-3 py-3 text-sm font-medium text-white"
                         onClick={() => void handleDeleteAppointment(appointment.id)}
                         type="button"
@@ -5910,70 +6019,7 @@ export default function Home() {
               <p className="mt-2 text-sm text-[#ddd4c5]">
                 Scrii exact ce vrei sa apara in calendar. Ocupa loc, dar nu pune venit.
               </p>
-              <div className="mt-3 grid gap-3">
-                <label className="grid gap-2 text-sm">
-                  <span className="text-muted">Cum apare in calendar</span>
-                  <input
-                    className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
-                    onChange={(event) => setPersonalBlockTitle(event.target.value)}
-                    placeholder="Ex: treaba mea, pauza, cumparaturi"
-                    value={personalBlockTitle}
-                  />
-                </label>
-                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-                  <label className="grid min-w-0 gap-2 text-sm">
-                    <span className="text-muted">Data</span>
-                    <input
-                      className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
-                      onChange={(event) => setPersonalBlockDate(event.target.value)}
-                      type="date"
-                      value={personalBlockDate}
-                    />
-                  </label>
-                  <label className="grid min-w-0 gap-2 text-sm">
-                    <span className="text-muted">Ora</span>
-                    <input
-                      className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
-                      onChange={(event) => setPersonalBlockTime(event.target.value)}
-                      type="time"
-                      value={personalBlockTime}
-                    />
-                  </label>
-                </div>
-                <label className="grid gap-2 text-sm">
-                  <span className="text-muted">Durata</span>
-                  <input
-                    className="w-full rounded-[8px] border border-[#3f3522] bg-black px-3 py-3 outline-none focus:border-gold"
-                    onChange={(event) => setPersonalBlockDuration(event.target.value)}
-                    placeholder="1h30min"
-                    value={personalBlockDuration}
-                  />
-                </label>
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {QUICK_DURATIONS.map((duration) => (
-                    <button
-                      className={`shrink-0 rounded-[8px] border px-3 py-2 text-xs font-semibold ${
-                        personalBlockDuration === duration
-                          ? "border-gold bg-gold text-black"
-                          : "border-[#3f3522] bg-black/70 text-[#ddd4c5]"
-                      }`}
-                      key={`personal-${duration}`}
-                      onClick={() => setPersonalBlockDuration(duration)}
-                      type="button"
-                    >
-                      {duration}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  className="rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
-                  disabled={isSavingPersonalBlock}
-                  onClick={() => void handleSavePersonalBlock()}
-                  type="button"
-                >
-                  {isSavingPersonalBlock ? "Se salveaza..." : "Adauga blocaj in calendar"}
-                </button>
-              </div>
+              {renderPersonalBlockForm()}
 
               {personalBlocks.length > 0 ? (
                 <div className="mt-4 space-y-2">
