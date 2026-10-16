@@ -1,7 +1,8 @@
 """Exercise proposed SQL guards in an isolated, network-disabled Docker Postgres.
 
-Run only against a disposable container named solash-restore-* after loading the
-snapshot and proposed migrations. Synthetic rows are removed on completion.
+Run only against a disposable solash-restore-* or solash-readiness-* container
+after loading the snapshot/schema fixture and proposed migrations. Synthetic
+rows are removed on completion.
 """
 
 import subprocess
@@ -10,8 +11,8 @@ import time
 
 
 container = sys.argv[1] if len(sys.argv) == 2 else ""
-if not container.startswith("solash-restore-"):
-    raise SystemExit("Refusing a container without the solash-restore- prefix")
+if not container.startswith(("solash-restore-", "solash-readiness-")):
+    raise SystemExit("Refusing a container without an isolated test prefix")
 
 
 def docker(*args, input_text=None):

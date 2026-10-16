@@ -1,0 +1,160 @@
+{
+  "method": "Read-only Supabase SELECT + organization metadata; no backup creation or restore.",
+  "platform": {
+    "schemas": [
+      "auth",
+      "extensions",
+      "graphql",
+      "graphql_public",
+      "public",
+      "realtime",
+      "storage",
+      "vault"
+    ],
+    "extensions": [
+      {
+        "name": "pg_stat_statements",
+        "schema": "extensions",
+        "version": "1.11"
+      },
+      {
+        "name": "pgcrypto",
+        "schema": "extensions",
+        "version": "1.3"
+      },
+      {
+        "name": "plpgsql",
+        "schema": "pg_catalog",
+        "version": "1.0"
+      },
+      {
+        "name": "supabase_vault",
+        "schema": "vault",
+        "version": "0.3.1"
+      },
+      {
+        "name": "uuid-ossp",
+        "schema": "extensions",
+        "version": "1.1"
+      }
+    ],
+    "storage_buckets": [
+      {
+        "bucket": "solash-backups",
+        "public": false,
+        "objects": 131
+      }
+    ],
+    "managed_policies": null,
+    "role_timeout_settings": [
+      {
+        "role": "anon",
+        "setting": "statement_timeout=3s",
+        "database": "0"
+      },
+      {
+        "role": "authenticated",
+        "setting": "statement_timeout=8s",
+        "database": "0"
+      },
+      {
+        "role": "authenticator",
+        "setting": "statement_timeout=8s",
+        "database": "0"
+      }
+    ],
+    "current_statement_timeout": "2min",
+    "vault_secrets_table_exists": true,
+    "managed_noninternal_triggers": [
+      {
+        "table": "storage.objects",
+        "enabled": "O",
+        "trigger": "update_objects_updated_at",
+        "function": "storage.update_updated_at_column()"
+      },
+      {
+        "table": "storage.buckets",
+        "enabled": "O",
+        "trigger": "enforce_bucket_name_length_trigger",
+        "function": "storage.enforce_bucket_name_length()"
+      },
+      {
+        "table": "storage.buckets",
+        "enabled": "O",
+        "trigger": "protect_buckets_delete",
+        "function": "storage.protect_delete()"
+      },
+      {
+        "table": "storage.objects",
+        "enabled": "O",
+        "trigger": "protect_objects_delete",
+        "function": "storage.protect_delete()"
+      },
+      {
+        "table": "realtime.subscription",
+        "enabled": "O",
+        "trigger": "tr_check_filters",
+        "function": "realtime.subscription_check_filters()"
+      },
+      {
+        "table": "storage.buckets",
+        "enabled": "O",
+        "trigger": "protect_bucket_control_insert",
+        "function": "storage.protect_bucket_control_columns()"
+      },
+      {
+        "table": "storage.buckets",
+        "enabled": "O",
+        "trigger": "protect_bucket_control_update",
+        "function": "storage.protect_bucket_control_columns()"
+      },
+      {
+        "table": "storage.buckets",
+        "enabled": "O",
+        "trigger": "protect_bucket_control_update_role",
+        "function": "storage.enforce_bucket_lifecycle_service_role()"
+      }
+    ]
+  },
+  "backup_bucket": {
+    "captured_at": "2026-10-16T10:59:58.827843+00:00",
+    "table_counts": {
+      "clients": 568,
+      "services": 7,
+      "appointments": 3875,
+      "push_delivery_logs": 569,
+      "push_subscriptions": 3,
+      "push_notification_runs": 70,
+      "push_appointment_reminders": 494
+    },
+    "backup_bucket_extension_counts": [
+      {
+        "count": 1,
+        "file_type": "json.gz"
+      },
+      {
+        "count": 130,
+        "file_type": "xlsx"
+      }
+    ]
+  },
+  "organization": {
+    "plan": "free",
+    "tier": "tier_free"
+  },
+  "native_backup_inventory": {
+    "status": "NOT_VERIFIED",
+    "reason": "Connected Supabase tools do not expose GET /v1/projects/{ref}/database/backups; no personal access token or database connection credentials are configured.",
+    "claim": "This is not evidence that Supabase has no internal physical backups."
+  },
+  "vercel": {
+    "project": "solash",
+    "project_id": "prj_GZ5wCC5zUCTvpYMKK3EnZGEx9s1m",
+    "team_id": "team_ks9AvByOp9QSxzsQVDuQHdtz",
+    "scope": "andreiotac-sys-projects",
+    "project_settings_status": 403,
+    "environment_metadata_status": 403,
+    "decrypted_environment_values_requested": false,
+    "cli_credentials_available": false
+  }
+}

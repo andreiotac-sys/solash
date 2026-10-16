@@ -1,0 +1,27 @@
+{
+  "method": "Read-only role metadata SELECT",
+  "roles": [
+    {
+      "role": "authenticated",
+      "can_login": false,
+      "bypass_rls": false
+    },
+    {
+      "role": "anon",
+      "can_login": false,
+      "bypass_rls": false
+    },
+    {
+      "role": "service_role",
+      "can_login": false,
+      "bypass_rls": true
+    },
+    {
+      "role": "authenticator",
+      "can_login": true,
+      "bypass_rls": false
+    }
+  ],
+  "anon_inherits_owner_privileges": false,
+  "authenticated_inherits_owner_privileges": false
+}

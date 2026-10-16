@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-16",
+  "postgres": "17.6",
+  "image": "postgres:17.6-alpine",
+  "image_digest": "sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94",
+  "network": "none",
+  "data": "synthetic only; reconstructed public DDL, no native backup restore",
+  "installation_test": "PASS",
+  "concurrent_overnight_installation_preflight": "PASS; waited for writer, rejected row, no partial function installed",
+  "runtime_tests": {
+    "passed": 17,
+    "failed": 0
+  },
+  "catalog_packet": "PASS; 16 sections, transaction_read_only=on",
+  "locks": {
+    "atomic": {
+      "appointments": [
+        "AccessShareLock",
+        "ShareRowExclusiveLock"
+      ]
+    },
+    "client_fk": {
+      "clients": [
+        "AccessShareLock",
+        "RowShareLock",
+        "ShareRowExclusiveLock",
+        "AccessExclusiveLock"
+      ],
+      "appointments": [
+        "AccessShareLock",
+        "ShareUpdateExclusiveLock",
+        "ShareRowExclusiveLock",
+        "AccessExclusiveLock"
+      ]
+    },
+    "delete_rls": {
+      "appointments": [
+        "AccessShareLock",
+        "AccessExclusiveLock"
+      ]
+    }
+  },
+  "sha256": {
+    "supabase/migrations/20261015_atomic_booking_guard.sql": "fed87c3e1849f4c400ad54a5cc982d6d382269321ecafa2d43b0b7442d59aad9",
+    "supabase/migrations/20261015_protect_client_history.sql": "9592273546f26676acb6106e218da30f87a3c2c5ec3e0026425bbd0f2bbc9114",
+    "supabase/migrations/20261015_protect_appointment_history.sql": "41e9659dbfd3adf8f46946870609f421f52d64d8bcb31adebcf1cc1012c83eaf",
+    "docs/audit/evidence/live-public-schema-fixture-20261016.sql": "4db2f3d66ec53863ad2f78a98201c5860cde945853cdde5186a576c092511bf2"
+  }
+}

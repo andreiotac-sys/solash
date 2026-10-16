@@ -1989,11 +1989,13 @@ export default function Home() {
   }, [flushOfflineQueue, isOnline, session]);
 
   useEffect(() => {
-    if (clients.length === 0 && appointments.length === 0 && services.length === 0) {
+    // Do not overwrite the device cache with the empty initial React state.
+    // Authentication and the first data load must finish before persisting it.
+    if (isLoading || !authReady || (isSupabaseConfigured && !session && !offlineBypass)) {
       return;
     }
     writeLocalStore({ clients, appointments, services });
-  }, [clients, appointments, services]);
+  }, [clients, appointments, services, isLoading, authReady, session, offlineBypass]);
 
   useEffect(() => {
     writeBusinessSettings(businessSettings);

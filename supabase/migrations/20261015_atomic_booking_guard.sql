@@ -4,6 +4,11 @@
 begin;
 set local lock_timeout = '5s';
 
+-- Freeze writes before examining legacy intervals. Without this early lock, a
+-- concurrent overnight row could commit between the scan and CREATE TRIGGER.
+-- Plain SELECT remains available; this lock is held until COMMIT or ROLLBACK.
+lock table public.appointments in share row exclusive mode;
+
 do $$
 begin
   if (

@@ -1,0 +1,1235 @@
+{
+  "method": "Read-only SELECT via connected Supabase integration. No production DDL or row writes.",
+  "project_ref": "vholwdtqcrkohydydmnb",
+  "core": {
+    "tables": [
+      {
+        "rls": true,
+        "kind": "r",
+        "name": "appointments",
+        "owner": "postgres",
+        "schema": "public",
+        "force_rls": false,
+        "partition": false
+      },
+      {
+        "rls": true,
+        "kind": "r",
+        "name": "clients",
+        "owner": "postgres",
+        "schema": "public",
+        "force_rls": false,
+        "partition": false
+      },
+      {
+        "rls": true,
+        "kind": "r",
+        "name": "push_appointment_reminders",
+        "owner": "postgres",
+        "schema": "public",
+        "force_rls": false,
+        "partition": false
+      },
+      {
+        "rls": true,
+        "kind": "r",
+        "name": "push_delivery_logs",
+        "owner": "postgres",
+        "schema": "public",
+        "force_rls": false,
+        "partition": false
+      },
+      {
+        "rls": true,
+        "kind": "r",
+        "name": "push_notification_runs",
+        "owner": "postgres",
+        "schema": "public",
+        "force_rls": false,
+        "partition": false
+      },
+      {
+        "rls": true,
+        "kind": "r",
+        "name": "push_subscriptions",
+        "owner": "postgres",
+        "schema": "public",
+        "force_rls": false,
+        "partition": false
+      },
+      {
+        "rls": true,
+        "kind": "r",
+        "name": "services",
+        "owner": "postgres",
+        "schema": "public",
+        "force_rls": false,
+        "partition": false
+      }
+    ],
+    "indexes": [
+      {
+        "table": "clients",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX clients_pkey ON public.clients USING btree (id)"
+      },
+      {
+        "table": "appointments",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX appointments_pkey ON public.appointments USING btree (id)"
+      },
+      {
+        "table": "appointments",
+        "valid": true,
+        "definition": "CREATE INDEX appointments_date_idx ON public.appointments USING btree (appointment_date, start_time)"
+      },
+      {
+        "table": "services",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX services_pkey ON public.services USING btree (id)"
+      },
+      {
+        "table": "push_subscriptions",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX push_subscriptions_pkey ON public.push_subscriptions USING btree (id)"
+      },
+      {
+        "table": "push_subscriptions",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX push_subscriptions_endpoint_key ON public.push_subscriptions USING btree (endpoint)"
+      },
+      {
+        "table": "push_notification_runs",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX push_notification_runs_pkey ON public.push_notification_runs USING btree (id)"
+      },
+      {
+        "table": "push_notification_runs",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX push_notification_runs_run_key_key ON public.push_notification_runs USING btree (run_key)"
+      },
+      {
+        "table": "push_subscriptions",
+        "valid": true,
+        "definition": "CREATE INDEX push_subscriptions_active_idx ON public.push_subscriptions USING btree (active)"
+      },
+      {
+        "table": "push_appointment_reminders",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX push_appointment_reminders_pkey ON public.push_appointment_reminders USING btree (id)"
+      },
+      {
+        "table": "push_appointment_reminders",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX push_appointment_reminders_reminder_key_key ON public.push_appointment_reminders USING btree (reminder_key)"
+      },
+      {
+        "table": "push_appointment_reminders",
+        "valid": true,
+        "definition": "CREATE INDEX push_appointment_reminders_appointment_idx ON public.push_appointment_reminders USING btree (appointment_id)"
+      },
+      {
+        "table": "push_delivery_logs",
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX push_delivery_logs_pkey ON public.push_delivery_logs USING btree (id)"
+      },
+      {
+        "table": "push_delivery_logs",
+        "valid": true,
+        "definition": "CREATE INDEX push_delivery_logs_created_idx ON public.push_delivery_logs USING btree (created_at DESC)"
+      }
+    ],
+    "database": "postgres",
+    "policies": [
+      {
+        "cmd": "DELETE",
+        "qual": "true",
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "appointments",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to delete appointments",
+        "schemaname": "public",
+        "with_check": null
+      },
+      {
+        "cmd": "INSERT",
+        "qual": null,
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "appointments",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to insert appointments",
+        "schemaname": "public",
+        "with_check": "true"
+      },
+      {
+        "cmd": "SELECT",
+        "qual": "true",
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "appointments",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to read appointments",
+        "schemaname": "public",
+        "with_check": null
+      },
+      {
+        "cmd": "UPDATE",
+        "qual": "true",
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "appointments",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to update appointments",
+        "schemaname": "public",
+        "with_check": "true"
+      },
+      {
+        "cmd": "DELETE",
+        "qual": "true",
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "clients",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to delete clients",
+        "schemaname": "public",
+        "with_check": null
+      },
+      {
+        "cmd": "INSERT",
+        "qual": null,
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "clients",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to insert clients",
+        "schemaname": "public",
+        "with_check": "true"
+      },
+      {
+        "cmd": "SELECT",
+        "qual": "true",
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "clients",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to read clients",
+        "schemaname": "public",
+        "with_check": null
+      },
+      {
+        "cmd": "UPDATE",
+        "qual": "true",
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "clients",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to update clients",
+        "schemaname": "public",
+        "with_check": "true"
+      },
+      {
+        "cmd": "DELETE",
+        "qual": "true",
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "services",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to delete services",
+        "schemaname": "public",
+        "with_check": null
+      },
+      {
+        "cmd": "INSERT",
+        "qual": null,
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "services",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to insert services",
+        "schemaname": "public",
+        "with_check": "true"
+      },
+      {
+        "cmd": "SELECT",
+        "qual": "true",
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "services",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to read services",
+        "schemaname": "public",
+        "with_check": null
+      },
+      {
+        "cmd": "UPDATE",
+        "qual": "true",
+        "roles": [
+          "authenticated"
+        ],
+        "tablename": "services",
+        "permissive": "PERMISSIVE",
+        "policyname": "Allow authenticated users to update services",
+        "schemaname": "public",
+        "with_check": "true"
+      }
+    ],
+    "captured_at": "2026-10-16T10:52:14.083923+00:00",
+    "constraints": [
+      {
+        "name": "appointments_client_id_fkey",
+        "type": "f",
+        "table": "appointments",
+        "validated": true,
+        "deferrable": false,
+        "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE",
+        "match_type": "s",
+        "delete_action": "c",
+        "update_action": "a"
+      },
+      {
+        "name": "appointments_pkey",
+        "type": "p",
+        "table": "appointments",
+        "validated": true,
+        "deferrable": false,
+        "definition": "PRIMARY KEY (id)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      },
+      {
+        "name": "clients_pkey",
+        "type": "p",
+        "table": "clients",
+        "validated": true,
+        "deferrable": false,
+        "definition": "PRIMARY KEY (id)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      },
+      {
+        "name": "push_appointment_reminders_appointment_id_fkey",
+        "type": "f",
+        "table": "push_appointment_reminders",
+        "validated": true,
+        "deferrable": false,
+        "definition": "FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE",
+        "match_type": "s",
+        "delete_action": "c",
+        "update_action": "a"
+      },
+      {
+        "name": "push_appointment_reminders_pkey",
+        "type": "p",
+        "table": "push_appointment_reminders",
+        "validated": true,
+        "deferrable": false,
+        "definition": "PRIMARY KEY (id)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      },
+      {
+        "name": "push_appointment_reminders_reminder_key_key",
+        "type": "u",
+        "table": "push_appointment_reminders",
+        "validated": true,
+        "deferrable": false,
+        "definition": "UNIQUE (reminder_key)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      },
+      {
+        "name": "push_delivery_logs_pkey",
+        "type": "p",
+        "table": "push_delivery_logs",
+        "validated": true,
+        "deferrable": false,
+        "definition": "PRIMARY KEY (id)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      },
+      {
+        "name": "push_notification_runs_pkey",
+        "type": "p",
+        "table": "push_notification_runs",
+        "validated": true,
+        "deferrable": false,
+        "definition": "PRIMARY KEY (id)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      },
+      {
+        "name": "push_notification_runs_run_key_key",
+        "type": "u",
+        "table": "push_notification_runs",
+        "validated": true,
+        "deferrable": false,
+        "definition": "UNIQUE (run_key)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      },
+      {
+        "name": "push_subscriptions_endpoint_key",
+        "type": "u",
+        "table": "push_subscriptions",
+        "validated": true,
+        "deferrable": false,
+        "definition": "UNIQUE (endpoint)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      },
+      {
+        "name": "push_subscriptions_pkey",
+        "type": "p",
+        "table": "push_subscriptions",
+        "validated": true,
+        "deferrable": false,
+        "definition": "PRIMARY KEY (id)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      },
+      {
+        "name": "services_pkey",
+        "type": "p",
+        "table": "services",
+        "validated": true,
+        "deferrable": false,
+        "definition": "PRIMARY KEY (id)",
+        "match_type": " ",
+        "delete_action": " ",
+        "update_action": " "
+      }
+    ],
+    "current_user": "postgres",
+    "server_version": "17.6",
+    "session_replication_role": "origin",
+    "default_transaction_isolation": "read committed"
+  },
+  "details": {
+    "roles": [
+      {
+        "role": "authenticated",
+        "super": false,
+        "inherit": true,
+        "bypass_rls": false
+      },
+      {
+        "role": "anon",
+        "super": false,
+        "inherit": true,
+        "bypass_rls": false
+      },
+      {
+        "role": "service_role",
+        "super": false,
+        "inherit": true,
+        "bypass_rls": true
+      },
+      {
+        "role": "postgres",
+        "super": false,
+        "inherit": true,
+        "bypass_rls": true
+      }
+    ],
+    "columns": [
+      {
+        "type": "bigint",
+        "table": "appointments",
+        "column": "id",
+        "default": null,
+        "identity": "d",
+        "not_null": true
+      },
+      {
+        "type": "bigint",
+        "table": "appointments",
+        "column": "client_id",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "appointments",
+        "column": "service",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "date",
+        "table": "appointments",
+        "column": "appointment_date",
+        "default": "CURRENT_DATE",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "time without time zone",
+        "table": "appointments",
+        "column": "start_time",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "appointments",
+        "column": "duration",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "integer",
+        "table": "appointments",
+        "column": "price",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "appointments",
+        "column": "status",
+        "default": "'Noua'::text",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "timestamp with time zone",
+        "table": "appointments",
+        "column": "created_at",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "bigint",
+        "table": "clients",
+        "column": "id",
+        "default": null,
+        "identity": "d",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "clients",
+        "column": "name",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "clients",
+        "column": "phone",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "clients",
+        "column": "notes",
+        "default": "''::text",
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "type": "integer",
+        "table": "clients",
+        "column": "visits",
+        "default": "0",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "clients",
+        "column": "last_visit_label",
+        "default": "'noua'::text",
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "type": "timestamp with time zone",
+        "table": "clients",
+        "column": "created_at",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "bigint",
+        "table": "push_appointment_reminders",
+        "column": "id",
+        "default": null,
+        "identity": "d",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "push_appointment_reminders",
+        "column": "reminder_key",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "bigint",
+        "table": "push_appointment_reminders",
+        "column": "appointment_id",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "timestamp with time zone",
+        "table": "push_appointment_reminders",
+        "column": "created_at",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "bigint",
+        "table": "push_delivery_logs",
+        "column": "id",
+        "default": null,
+        "identity": "d",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "push_delivery_logs",
+        "column": "source",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "push_delivery_logs",
+        "column": "title",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "push_delivery_logs",
+        "column": "body",
+        "default": "''::text",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "integer",
+        "table": "push_delivery_logs",
+        "column": "sent_count",
+        "default": "0",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "integer",
+        "table": "push_delivery_logs",
+        "column": "reminders_count",
+        "default": "0",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "timestamp with time zone",
+        "table": "push_delivery_logs",
+        "column": "created_at",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "bigint",
+        "table": "push_notification_runs",
+        "column": "id",
+        "default": null,
+        "identity": "d",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "push_notification_runs",
+        "column": "run_key",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "timestamp with time zone",
+        "table": "push_notification_runs",
+        "column": "created_at",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "bigint",
+        "table": "push_subscriptions",
+        "column": "id",
+        "default": null,
+        "identity": "d",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "push_subscriptions",
+        "column": "endpoint",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "bigint",
+        "table": "push_subscriptions",
+        "column": "expiration_time",
+        "default": null,
+        "identity": "",
+        "not_null": false
+      },
+      {
+        "type": "text",
+        "table": "push_subscriptions",
+        "column": "p256dh",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "push_subscriptions",
+        "column": "auth",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "boolean",
+        "table": "push_subscriptions",
+        "column": "active",
+        "default": "true",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "timestamp with time zone",
+        "table": "push_subscriptions",
+        "column": "created_at",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "timestamp with time zone",
+        "table": "push_subscriptions",
+        "column": "updated_at",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "bigint",
+        "table": "services",
+        "column": "id",
+        "default": null,
+        "identity": "d",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "services",
+        "column": "name",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "text",
+        "table": "services",
+        "column": "duration",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "integer",
+        "table": "services",
+        "column": "price",
+        "default": null,
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "boolean",
+        "table": "services",
+        "column": "active",
+        "default": "true",
+        "identity": "",
+        "not_null": true
+      },
+      {
+        "type": "timestamp with time zone",
+        "table": "services",
+        "column": "created_at",
+        "default": "now()",
+        "identity": "",
+        "not_null": true
+      }
+    ],
+    "triggers": [
+      {
+        "name": "RI_ConstraintTrigger_a_17569",
+        "table": "clients",
+        "enabled": "O",
+        "function": "\"RI_FKey_cascade_del\"()",
+        "internal": true,
+        "definition": "CREATE CONSTRAINT TRIGGER \"RI_ConstraintTrigger_a_17569\" AFTER DELETE ON public.clients FROM appointments NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION \"RI_FKey_cascade_del\"()"
+      },
+      {
+        "name": "RI_ConstraintTrigger_a_17570",
+        "table": "clients",
+        "enabled": "O",
+        "function": "\"RI_FKey_noaction_upd\"()",
+        "internal": true,
+        "definition": "CREATE CONSTRAINT TRIGGER \"RI_ConstraintTrigger_a_17570\" AFTER UPDATE ON public.clients FROM appointments NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION \"RI_FKey_noaction_upd\"()"
+      },
+      {
+        "name": "RI_ConstraintTrigger_c_17571",
+        "table": "appointments",
+        "enabled": "O",
+        "function": "\"RI_FKey_check_ins\"()",
+        "internal": true,
+        "definition": "CREATE CONSTRAINT TRIGGER \"RI_ConstraintTrigger_c_17571\" AFTER INSERT ON public.appointments FROM clients NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION \"RI_FKey_check_ins\"()"
+      },
+      {
+        "name": "RI_ConstraintTrigger_c_17572",
+        "table": "appointments",
+        "enabled": "O",
+        "function": "\"RI_FKey_check_upd\"()",
+        "internal": true,
+        "definition": "CREATE CONSTRAINT TRIGGER \"RI_ConstraintTrigger_c_17572\" AFTER UPDATE ON public.appointments FROM clients NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION \"RI_FKey_check_upd\"()"
+      },
+      {
+        "name": "RI_ConstraintTrigger_a_17650",
+        "table": "appointments",
+        "enabled": "O",
+        "function": "\"RI_FKey_cascade_del\"()",
+        "internal": true,
+        "definition": "CREATE CONSTRAINT TRIGGER \"RI_ConstraintTrigger_a_17650\" AFTER DELETE ON public.appointments FROM push_appointment_reminders NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION \"RI_FKey_cascade_del\"()"
+      },
+      {
+        "name": "RI_ConstraintTrigger_a_17651",
+        "table": "appointments",
+        "enabled": "O",
+        "function": "\"RI_FKey_noaction_upd\"()",
+        "internal": true,
+        "definition": "CREATE CONSTRAINT TRIGGER \"RI_ConstraintTrigger_a_17651\" AFTER UPDATE ON public.appointments FROM push_appointment_reminders NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION \"RI_FKey_noaction_upd\"()"
+      },
+      {
+        "name": "RI_ConstraintTrigger_c_17652",
+        "table": "push_appointment_reminders",
+        "enabled": "O",
+        "function": "\"RI_FKey_check_ins\"()",
+        "internal": true,
+        "definition": "CREATE CONSTRAINT TRIGGER \"RI_ConstraintTrigger_c_17652\" AFTER INSERT ON public.push_appointment_reminders FROM appointments NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION \"RI_FKey_check_ins\"()"
+      },
+      {
+        "name": "RI_ConstraintTrigger_c_17653",
+        "table": "push_appointment_reminders",
+        "enabled": "O",
+        "function": "\"RI_FKey_check_upd\"()",
+        "internal": true,
+        "definition": "CREATE CONSTRAINT TRIGGER \"RI_ConstraintTrigger_c_17653\" AFTER UPDATE ON public.push_appointment_reminders FROM appointments NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION \"RI_FKey_check_upd\"()"
+      }
+    ],
+    "privileges": [
+      {
+        "role": "authenticated",
+        "table": "clients",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "anon",
+        "table": "clients",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "service_role",
+        "table": "clients",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "authenticated",
+        "table": "appointments",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "anon",
+        "table": "appointments",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "service_role",
+        "table": "appointments",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "authenticated",
+        "table": "services",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "anon",
+        "table": "services",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "service_role",
+        "table": "services",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "authenticated",
+        "table": "push_subscriptions",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "anon",
+        "table": "push_subscriptions",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "service_role",
+        "table": "push_subscriptions",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "authenticated",
+        "table": "push_notification_runs",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "anon",
+        "table": "push_notification_runs",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "service_role",
+        "table": "push_notification_runs",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "authenticated",
+        "table": "push_appointment_reminders",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "anon",
+        "table": "push_appointment_reminders",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "service_role",
+        "table": "push_appointment_reminders",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "authenticated",
+        "table": "push_delivery_logs",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "anon",
+        "table": "push_delivery_logs",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      },
+      {
+        "role": "service_role",
+        "table": "push_delivery_logs",
+        "delete": true,
+        "insert": true,
+        "select": true,
+        "update": true,
+        "trigger": true,
+        "truncate": true
+      }
+    ],
+    "public_functions": null
+  },
+  "aggregates": {
+    "counts": {
+      "clients": 568,
+      "appointments": 3875,
+      "client_orphans": 0,
+      "personal_blocks": 52,
+      "reminder_orphans": 0,
+      "historical_before_2025": 1848
+    },
+    "statuses": [
+      {
+        "count": 3291,
+        "status": "Confirmata"
+      },
+      {
+        "count": 40,
+        "status": "Noua"
+      },
+      {
+        "count": 544,
+        "status": "Programata"
+      }
+    ],
+    "durations": [
+      {
+        "count": 1,
+        "duration": "14h"
+      },
+      {
+        "count": 2,
+        "duration": "15min"
+      },
+      {
+        "count": 108,
+        "duration": "1h"
+      },
+      {
+        "count": 9,
+        "duration": "1h 15min"
+      },
+      {
+        "count": 1,
+        "duration": "1h 20min"
+      },
+      {
+        "count": 1,
+        "duration": "1h 25min"
+      },
+      {
+        "count": 1337,
+        "duration": "1h 30min"
+      },
+      {
+        "count": 39,
+        "duration": "1h 45min"
+      },
+      {
+        "count": 40,
+        "duration": "1h30 min"
+      },
+      {
+        "count": 156,
+        "duration": "1h30min"
+      },
+      {
+        "count": 1,
+        "duration": "1h45min"
+      },
+      {
+        "count": 1999,
+        "duration": "2h"
+      },
+      {
+        "count": 23,
+        "duration": "2h 15min"
+      },
+      {
+        "count": 62,
+        "duration": "2h 30min"
+      },
+      {
+        "count": 1,
+        "duration": "2h 45min"
+      },
+      {
+        "count": 28,
+        "duration": "2h30min"
+      },
+      {
+        "count": 24,
+        "duration": "30min"
+      },
+      {
+        "count": 11,
+        "duration": "3h"
+      },
+      {
+        "count": 1,
+        "duration": "3h 15min"
+      },
+      {
+        "count": 11,
+        "duration": "45min"
+      },
+      {
+        "count": 3,
+        "duration": "4h"
+      },
+      {
+        "count": 1,
+        "duration": "4h 30min"
+      },
+      {
+        "count": 1,
+        "duration": "55min"
+      },
+      {
+        "count": 2,
+        "duration": "5h"
+      },
+      {
+        "count": 12,
+        "duration": "8h"
+      },
+      {
+        "count": 1,
+        "duration": "9h"
+      }
+    ],
+    "captured_at": "2026-10-16T10:53:06.754899+00:00",
+    "auth_users_count": 1,
+    "migration_history_exists": false
+  },
+  "intervals": {
+    "active_overlap_dates": 11,
+    "active_overlap_pairs": 13,
+    "active_overnight_rows": 0,
+    "invalid_duration_rows": 0,
+    "personal_overlap_pairs": 0,
+    "out_of_bounds_duration_rows": 0
+  },
+  "backup_plan": {
+    "plan": "free",
+    "supported_backup_inventory": "Not available through the connected toolset; do not infer that no internal physical backup exists."
+  }
+}
