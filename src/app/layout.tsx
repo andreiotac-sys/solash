@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./redesign.css";
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#090806",
+  themeColor: process.env.NEXT_PUBLIC_SOLASH_NEW_UI === "false" ? "#090806" : "#fff8fb",
 };
 
 export const metadata: Metadata = {
@@ -22,7 +23,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
+    statusBarStyle: process.env.NEXT_PUBLIC_SOLASH_NEW_UI === "false" ? "black-translucent" : "default",
     title: "SoLash",
   },
   formatDetection: {

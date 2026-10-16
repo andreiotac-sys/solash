@@ -56,6 +56,22 @@ const DEFAULT_BREAK_END = "14:00";
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 const newUI = process.env.NEXT_PUBLIC_SOLASH_NEW_UI !== "false";
 
+function StudioBrand() {
+  return (
+    <div className="studio-brand" aria-label="SoLash, beauty studio">
+      <span className="studio-brand-symbol" aria-hidden="true">
+        <svg viewBox="0 0 40 40" fill="none">
+          <path d="M20 20C7 20 5 7 12 6c6-1 8 7 8 14Zm0 0c0-13 13-15 14-8 1 6-7 8-14 8Zm0 0c13 0 15 13 8 14-6 1-8-7-8-14Zm0 0c0 13-13 15-14 8-1-6 7-8 14-8Z" fill="currentColor" />
+        </svg>
+      </span>
+      <div>
+        <p className="studio-brand-name">So<span>Lash</span><span className="studio-brand-dot">.</span></p>
+        <p className="studio-brand-caption">BEAUTY STUDIO</p>
+      </div>
+    </div>
+  );
+}
+
 const WEEK_DAYS = [
   { key: 0, label: "Luni" },
   { key: 1, label: "Marti" },
@@ -3807,8 +3823,8 @@ export default function Home() {
 
   if (!authReady) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
-        <div className="gold-ring w-full max-w-sm rounded-[8px] border border-line bg-panel px-5 py-6">
+      <main className={`flex min-h-screen items-center justify-center bg-background px-4 text-foreground ${newUI ? "solash-v2 solash-auth" : ""}`}>
+        <div className="gold-ring w-full max-w-sm rounded-[8px] border border-line bg-panel px-5 py-6" data-ui="auth-card">
           <p className="text-sm text-muted">SoLash</p>
           <h1 className="mt-2 text-2xl font-semibold">Se pregateste aplicatia</h1>
         </div>
@@ -3818,9 +3834,9 @@ export default function Home() {
 
   if (isSupabaseConfigured && !session && !offlineBypass) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
-        <div className="gold-ring w-full max-w-sm rounded-[8px] border border-line bg-panel px-5 py-6">
-          <div className="mx-auto w-fit rounded-[8px] p-1">
+      <main className={`flex min-h-screen items-center justify-center bg-background px-4 text-foreground ${newUI ? "solash-v2 solash-auth" : ""}`}>
+        <div className="gold-ring w-full max-w-sm rounded-[8px] border border-line bg-panel px-5 py-6" data-ui="auth-card">
+          {newUI ? <StudioBrand /> : (<div className="mx-auto w-fit rounded-[8px] p-1">
             <Image
               alt="SoLash logo"
               className="mx-auto h-auto w-full max-w-[230px] rounded-[6px]"
@@ -3829,7 +3845,7 @@ export default function Home() {
               src="/solash-logo-v3.png"
               width={230}
             />
-          </div>
+          </div>)}
           <p className="mt-4 text-center text-sm text-muted">Autentificare SoLash</p>
           <h1 className="mt-2 text-center text-2xl font-semibold">
             Intra in aplicatie
@@ -3887,12 +3903,12 @@ export default function Home() {
 
   return (
     <main className={`min-h-screen bg-background text-foreground ${newUI ? "solash-v2" : ""}`}>
-      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-28 pt-6">
+      <div className="solash-shell mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-28 pt-6">
         {activeTab === "home" ? (
           <section className="panel-glow gold-ring rounded-[8px] border border-line px-5 py-5" data-ui="home-hero">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="mb-3 w-fit rounded-[8px] p-0.5">
+                {newUI ? <StudioBrand /> : (<div className="mb-3 w-fit rounded-[8px] p-0.5">
                   <Image
                     alt="SoLash logo"
                     className="h-auto w-full max-w-[186px] rounded-[6px]"
@@ -3901,10 +3917,10 @@ export default function Home() {
                     src="/solash-logo-v3.png"
                     width={186}
                   />
-                </div>
+                </div>)}
                 {newUI ? (
                   <>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gold">Agenda zilei</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gold">Agenda studioului</p>
                     <h1 className="mt-1 text-2xl font-semibold capitalize">{humanDate(appointmentDate)}</h1>
                   </>
                 ) : (
@@ -3916,7 +3932,7 @@ export default function Home() {
                   </>
                 )}
               </div>
-              <div className="gold-ring rounded-[8px] border border-line bg-panel px-3 py-2 text-right">
+              <div className="gold-ring rounded-[8px] border border-line bg-panel px-3 py-2 text-right" data-ui="day-count">
                 <p className="text-xs text-muted">Pe data aleasa</p>
                 <p className="mt-1 text-2xl font-semibold text-gold-strong">
                   {appointmentsForSelectedDate.length}
@@ -3952,7 +3968,7 @@ export default function Home() {
               </>
             ) : null}
 
-            <div className="mt-5 grid grid-cols-2 gap-3">
+            <div className="mt-5 grid grid-cols-2 gap-3" data-ui="quick-actions">
               <button
                 className="rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black"
                 onClick={() => {
@@ -3977,7 +3993,7 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-3">
+            <div className="mt-5 grid grid-cols-2 gap-3" data-ui="metrics">
               <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
                 <p className="text-xs text-muted">Incasari pe zi</p>
                 <p className="mt-2 text-xl font-semibold text-gold">{formatPrice(dailyRevenue)}</p>
@@ -3988,7 +4004,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="mt-3 grid grid-cols-2 gap-3" data-ui="metrics-secondary">
               <div className="gold-ring rounded-[8px] border border-line bg-panel px-4 py-3">
                 <p className="text-xs text-muted">Saptamana</p>
                 <p className="mt-2 text-lg font-semibold">{formatPrice(weeklyRevenue)}</p>
@@ -4018,9 +4034,9 @@ export default function Home() {
             ) : null}
           </section>
         ) : (
-          <section className="gold-ring rounded-[8px] border border-line bg-panel px-5 py-4">
+          <section className="gold-ring rounded-[8px] border border-line bg-panel px-5 py-4" data-ui="page-header">
             <div className="flex items-center justify-between gap-4">
-              <div className="w-fit rounded-[8px] p-0.5">
+              {newUI ? <StudioBrand /> : (<div className="w-fit rounded-[8px] p-0.5">
                 <Image
                   alt="SoLash logo"
                   className="h-auto w-full max-w-[186px] rounded-[6px]"
@@ -4029,7 +4045,7 @@ export default function Home() {
                   src="/solash-logo-v3.png"
                   width={186}
                 />
-              </div>
+              </div>)}
               <div className="text-right">
                 <p className="text-base font-semibold text-muted">{selectedDateBadge.day}</p>
                 <p className="text-2xl font-semibold leading-none text-gold-strong capitalize">
@@ -4042,11 +4058,12 @@ export default function Home() {
                 ) : null}
               </div>
             </div>
+            {newUI ? <h1 className="mt-5 text-2xl font-semibold">{{ month: "Calendarul tău", appointments: "Programări & cliente", clients: "Fiecare clientă contează", reports: "Studioul tău, în cifre", settings: "Pe stilul tău", home: "Agenda ta" }[activeTab]}</h1> : null}
           </section>
         )}
 
         {showCalendar ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" data-ui="dialog-backdrop">
             <div className="gold-ring w-full max-w-sm rounded-[8px] border border-line bg-panel p-4">
               <DayPicker
                 mode="single"
@@ -4074,7 +4091,7 @@ export default function Home() {
         ) : null}
 
         {saveWarning ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" data-ui="dialog-backdrop">
             <div className="gold-ring w-full max-w-sm rounded-[8px] border border-line bg-panel p-5">
               <p className="text-base font-semibold text-gold-strong">{saveWarning.title}</p>
               <div className="mt-3 grid gap-2">
@@ -4106,7 +4123,7 @@ export default function Home() {
         ) : null}
 
         {activeTab === "home" ? (
-          <>
+          <div className="contents" data-ui="home-content">
             <section className="mt-6" ref={appointmentEditorRef}>
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Urmatoarea programare</h2>
@@ -4383,12 +4400,12 @@ export default function Home() {
                 </div>
               </div>
             </section>
-          </>
+          </div>
         ) : null}
 
         {activeTab === "month" ? (
           <section className="mt-4">
-            <div className="mb-3 overflow-hidden rounded-[8px] border border-line bg-[#0b0b0c]">
+            <div className="mb-3 overflow-hidden rounded-[8px] border border-line bg-[#0b0b0c]" data-ui="month-calendar">
               <div className="flex items-center justify-between border-b border-[#262626] bg-[#1f2022] px-3 py-3">
                 <button
                   className="rounded-[8px] border border-line bg-black px-3 py-2 text-lg font-semibold"
@@ -4442,6 +4459,9 @@ export default function Home() {
                     <button
                       key={day.iso}
                       aria-current={day.isSelected ? "date" : undefined}
+                      data-today={day.isToday || undefined}
+                      data-outside={!day.inCurrentMonth || undefined}
+                      data-holiday={Boolean(day.holiday) || undefined}
                       className={`min-h-[68px] rounded-[4px] border px-1 py-2 text-center transition ${dayButtonClass}`}
                       onClick={() => {
                         setAppointmentDate(day.iso);
@@ -4537,7 +4557,7 @@ export default function Home() {
               </div>
             ) : null}
 
-            <div className="overflow-hidden rounded-[8px] border border-[#303136] bg-[#202124]">
+            <div className="overflow-hidden rounded-[8px] border border-[#303136] bg-[#202124]" data-ui="day-timeline">
               <div className="flex items-center justify-between border-b border-[#34363a] bg-[#2c2d31] px-3 py-3">
                 <div>
                   <p className="text-sm font-semibold">
@@ -4871,7 +4891,7 @@ export default function Home() {
                       : "Clienta noua"}
                 </h2>
                 <span className="text-sm text-muted">
-                  {isSupabaseConfigured ? "Supabase" : "demo local"}
+                  {newUI ? "Organizare zilnică" : isSupabaseConfigured ? "Supabase" : "demo local"}
                 </span>
               </div>
 
@@ -6398,10 +6418,15 @@ export default function Home() {
           ].map(({ label, short, key, icon }) => (
             <button
               key={label}
+              aria-label={label}
+              aria-current={activeTab === key ? "page" : undefined}
               className={`min-w-0 overflow-hidden rounded-[8px] px-0.5 py-1 text-center text-[9px] font-medium leading-3 whitespace-nowrap sm:px-1 sm:py-2 sm:text-[10px] ${
                 activeTab === key ? "bg-gold text-black" : "text-muted"
               }`}
-              onClick={() => setActiveTab(key)}
+              onClick={() => {
+                setActiveTab(key);
+                if (newUI) window.scrollTo({ top: 0, behavior: "instant" });
+              }}
               type="button"
             >
               <span className="mx-auto mb-1.5 block h-4 w-4">
@@ -6419,7 +6444,7 @@ export default function Home() {
                   ))}
                 </svg>
               </span>
-              <span className="block">{short}</span>
+              <span className="block">{newUI ? label : short}</span>
             </button>
           ))}
         </nav>

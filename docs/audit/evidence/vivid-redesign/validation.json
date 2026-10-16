@@ -1,0 +1,227 @@
+{
+  "theme": "Vivid studio: raspberry, violet, cream and mint",
+  "data": "Synthetic only; Supabase disabled",
+  "layoutChecks": [
+    {
+      "heading": "vineri, 16 octombrie 2026",
+      "scrollWidth": 375,
+      "scrollY": 0,
+      "section": "Acasa",
+      "width": 375
+    },
+    {
+      "heading": "Calendarul tău",
+      "nav": {
+        "bottom": 800,
+        "height": 71,
+        "left": 12,
+        "right": 363,
+        "top": 729,
+        "width": 351,
+        "x": 12,
+        "y": 729
+      },
+      "scrollWidth": 375,
+      "scrollY": 0,
+      "section": "Luna",
+      "width": 375
+    },
+    {
+      "heading": "Programări & cliente",
+      "nav": {
+        "bottom": 800,
+        "height": 71,
+        "left": 12,
+        "right": 363,
+        "top": 729,
+        "width": 351,
+        "x": 12,
+        "y": 729
+      },
+      "scrollWidth": 375,
+      "scrollY": 0,
+      "section": "Programari",
+      "width": 375
+    },
+    {
+      "heading": "Fiecare clientă contează",
+      "nav": {
+        "bottom": 800,
+        "height": 71,
+        "left": 12,
+        "right": 363,
+        "top": 729,
+        "width": 351,
+        "x": 12,
+        "y": 729
+      },
+      "scrollWidth": 375,
+      "scrollY": 0,
+      "section": "Cliente",
+      "width": 375
+    },
+    {
+      "heading": "Studioul tău, în cifre",
+      "nav": {
+        "bottom": 800,
+        "height": 71,
+        "left": 12,
+        "right": 363,
+        "top": 729,
+        "width": 351,
+        "x": 12,
+        "y": 729
+      },
+      "scrollWidth": 375,
+      "scrollY": 0,
+      "section": "Rapoarte",
+      "width": 375
+    },
+    {
+      "heading": "Pe stilul tău",
+      "nav": {
+        "bottom": 800,
+        "height": 71,
+        "left": 12,
+        "right": 363,
+        "top": 729,
+        "width": 351,
+        "x": 12,
+        "y": 729
+      },
+      "scrollWidth": 375,
+      "scrollY": 0,
+      "section": "Setari",
+      "width": 375
+    },
+    {
+      "heading": "vineri, 16 octombrie 2026",
+      "nav": {
+        "bottom": 498,
+        "height": 462,
+        "left": 120,
+        "right": 210,
+        "top": 36,
+        "width": 90,
+        "x": 120,
+        "y": 36
+      },
+      "scrollWidth": 1280,
+      "scrollY": 0,
+      "section": "Acasa",
+      "width": 1280
+    },
+    {
+      "heading": "Calendarul tău",
+      "nav": {
+        "bottom": 498,
+        "height": 462,
+        "left": 120,
+        "right": 210,
+        "top": 36,
+        "width": 90,
+        "x": 120,
+        "y": 36
+      },
+      "scrollWidth": 1280,
+      "scrollY": 0,
+      "section": "Luna",
+      "width": 1280
+    },
+    {
+      "heading": "Programări & cliente",
+      "nav": {
+        "bottom": 498,
+        "height": 462,
+        "left": 120,
+        "right": 210,
+        "top": 36,
+        "width": 90,
+        "x": 120,
+        "y": 36
+      },
+      "scrollWidth": 1280,
+      "scrollY": 0,
+      "section": "Programari",
+      "width": 1280
+    },
+    {
+      "heading": "Fiecare clientă contează",
+      "nav": {
+        "bottom": 498,
+        "height": 462,
+        "left": 120,
+        "right": 210,
+        "top": 36,
+        "width": 90,
+        "x": 120,
+        "y": 36
+      },
+      "scrollWidth": 1280,
+      "scrollY": 0,
+      "section": "Cliente",
+      "width": 1280
+    },
+    {
+      "heading": "Studioul tău, în cifre",
+      "nav": {
+        "bottom": 498,
+        "height": 462,
+        "left": 120,
+        "right": 210,
+        "top": 36,
+        "width": 90,
+        "x": 120,
+        "y": 36
+      },
+      "scrollWidth": 1280,
+      "scrollY": 0,
+      "section": "Rapoarte",
+      "width": 1280
+    },
+    {
+      "heading": "Pe stilul tău",
+      "nav": {
+        "bottom": 498,
+        "height": 462,
+        "left": 120,
+        "right": 210,
+        "top": 36,
+        "width": 90,
+        "x": 120,
+        "y": 36
+      },
+      "scrollWidth": 1280,
+      "scrollY": 0,
+      "section": "Setari",
+      "width": 1280
+    },
+    {
+      "heading": "vineri, 16 octombrie 2026",
+      "scrollWidth": 430,
+      "scrollY": 0,
+      "section": "Acasa",
+      "width": 430
+    }
+  ],
+  "smallSettings": {
+    "width": 320,
+    "scrollWidth": 320,
+    "inputFontSize": "16px"
+  },
+  "authLayout": {
+    "width": 375,
+    "scrollWidth": 375,
+    "realAuthTest": false
+  },
+  "fallback": {
+    "flag": false,
+    "legacyLogo": true,
+    "background": "rgb(9, 8, 6)",
+    "syntheticBookingPreserved": true
+  },
+  "build": "Webpack and TypeScript PASS",
+  "lint": "PASS",
+  "nativeSafari": "Home and calendar rendered on macOS, navigation checked; no iPhone or installed-PWA claim",
+  "productionConsoleErrors": 0
+}

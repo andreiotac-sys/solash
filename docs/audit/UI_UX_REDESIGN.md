@@ -1,5 +1,7 @@
 # UI and UX changes
 
+**Vivid redesign follow-up:** the new interface now has a complete light raspberry/violet/cream/mint theme across home, calendar, booking/customer forms, clients, reports, settings and login. Desktop layout and mobile navigation were updated. The original dark/gold frontend remains behind flag=false. [Current changes, screenshots and verification](VIVID_REDESIGN.md) supersede the earlier new-theme description below; business/data logic is unchanged.
+
 **Follow-up, 16 October 2026:** real macOS Safari responsive checks now include local booking/calendar flows and switching false→true with cancelled history intact. A local-cache initialization overwrite was fixed and verified after full reload. This supersedes the earlier Safari-access timeout below; physical iPhone, installed PWA, touch and authenticated offline reconciliation remain open. See [SAFARI_PWA_VALIDATION.md](SAFARI_PWA_VALIDATION.md).
 
 The development branch adds a reversible home-screen redesign controlled by `NEXT_PUBLIC_SOLASH_NEW_UI`. The new interface is enabled unless the value is exactly `false`. Setting it to `false` at build time restores the previous home layout and styles without touching customer data. Booking and data logic remain shared between both appearances.
