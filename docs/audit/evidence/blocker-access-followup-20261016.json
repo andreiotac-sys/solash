@@ -1,0 +1,50 @@
+{
+  "checked_at": "2026-10-16 11:22:34 UTC",
+  "source": "targeted connector diagnostics; no schema/data audit rerun",
+  "supabase": {
+    "project_ref": "vholwdtqcrkohydydmnb",
+    "project_get": "200 ACTIVE_HEALTHY",
+    "backup_inventory_tool_available": false,
+    "management_api_backup_request_sent": false,
+    "reason": "No supported backup-list tool or configured Management API PAT; project/database access does not expose provider backup inventory.",
+    "native_backup_exists": "unknown",
+    "native_restore_verified": false
+  },
+  "vercel": {
+    "user_id": "6zJobtROcPr3n6idqeZsd0uj",
+    "username": "andreiotac-sys",
+    "list_teams_count": 0,
+    "team_id": "team_ks9AvByOp9QSxzsQVDuQHdtz",
+    "team_slug": "andreiotac-sys-projects",
+    "project_id": "prj_GZ5wCC5zUCTvpYMKK3EnZGEx9s1m",
+    "project_name": "solash",
+    "team_get_status": 403,
+    "project_get_with_slug_status": 403,
+    "saml": false,
+    "ssoEnforced": false,
+    "exact_oauth_grants_inspectable": false,
+    "required_read_capabilities": [
+      "Team: Read Only",
+      "Projects: Read Only",
+      "Production Environment Variables: Read Only",
+      "Non-Production Environment Variables: Read Only",
+      "Deployments: Read Only"
+    ],
+    "underlying_cause": "Effective authorization to team scope missing; account membership versus connector team/project consent or read grants cannot yet be distinguished.",
+    "cli_available": false,
+    "cli_credentials_available": false
+  },
+  "auth_settings": {
+    "method": "GET /auth/v1/settings with existing publishable key; no signup/login or account changes",
+    "http_status": 200,
+    "disable_signup": false,
+    "external_email": true,
+    "anonymous_users": false,
+    "external_phone": false,
+    "mailer_autoconfirm": false,
+    "phone_autoconfirm": false,
+    "sign_up_attempted": false,
+    "signup_hooks_inspected": false
+  },
+  "mutations": "none; local documentation only"
+}

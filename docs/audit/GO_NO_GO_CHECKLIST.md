@@ -2,6 +2,8 @@
 
 **Decizie la 16.10.2026: NO-GO pentru lansare.** Compatibilitatea schemei reale este acum verificată, dar lipsesc dovada restaurării unui backup nativ complet, izolarea Vercel și probele iPhone/PWA. Aprobarea execuției nu este cerută sau presupusă în această etapă.
 
+**Continuarea punctuală:** [planul proprietarului](OWNER_ACTION_PLAN.md) include pașii UI și confirmările necesare. GET Auth settings a confirmat înscrierea activată; autorizarea explicită este acum un blocaj confirmat, nu doar o setare necunoscută. [Dovezi noi](evidence/blocker-access-followup-20261016.json). Nicio schimbare locală nu este declarată live.
+
 Codul și dovezile acestei continuări sunt în commitul local `16b3769338328c36d1d0211d66ef13c6631c6871`, după `d2f86cef1eaf4dc91578722bf67e606bb5fb68c5`. Commitul ulterior conține documentația; identificați-l prin `git log -1` și fixați întregul SHA candidat înaintea aprobării. Hashurile celor trei migrări sunt în [manifestul testelor](evidence/migration-validation-20261016.json). Mediul Docker temporar a fost oprit și serverul Safari local închis după probe.
 
 | Gate | Stare | Dovadă / ce mai lipsește |
@@ -17,7 +19,7 @@ Codul și dovezile acestei continuări sunt în commitul local `16b3769338328c36
 | Safari real pe Mac și layout responsive | PASS, limitat | [Verificare](SAFARI_PWA_VALIDATION.md): 375/430 px, creare/editare/reprogramare/anulare și calendar cu date locale. |
 | Persistență cache și revenire UI | PASS local | Defectul de inițializare a cache-ului corectat; reload păstrează datele. Flag=false afișează frontendul vechi; buildul nou true se încarcă după refresh pe același origin. |
 | iPhone fizic / PWA instalată / touch / offline autentificat | MANUAL REQUIRED | Nu a fost disponibil iPhone; instalarea, actualizarea, safe areas, tastatura, long-press/drag, background și coada offline necesită proba pe mediu izolat. |
-| Auth, privilege minime și service-role | REVIEW REQUIRED | RLS live larg, un utilizator Auth; signup nu a fost inspectat. TRUNCATE/TRIGGER acordate anon/authenticated, dar fără login SQL direct și fără RPC public observat. Service-role și marcajul editabil nu sunt protejate împotriva unui actor privilegiat. [Analiză](PRODUCTION_SCHEMA_COMPATIBILITY.md). |
+| Auth, privilege minime și service-role | BLOCKED | GET Auth settings: înscriere activată, email cu confirmare, anonymous sign-ins dezactivate. RLS live larg; numărul de utilizatori din audit este datat. TRUNCATE/TRIGGER acordate anon/authenticated, fără login SQL direct/RPC public observat. [Propunere minimă neaplicată](AUTHORIZATION_MINIMAL_PROPOSAL.md): signup administrativ, UUID autorizat în RLS/rute server, revocare TRUNCATE/TRIGGER. |
 | Fluxuri autentificate și backup XLSX | PASS anterior, limitat | [Teste](TEST_RESULTS.md): Supabase local cu date sintetice, 401/200 la backup și SHA descărcat egal. Nu au fost reluate fără motiv; cronul live rămâne smoke-test ulterior aprobat. |
 | Verificări cod după schimbarea cache-ului | PASS | Lint, 22 teste Node și build Webpack cu TypeScript, cu Supabase dezactivat pentru proba Safari. Aceste verificări nu decid singure GO. |
 | Aprobări de producție | NOT GRANTED | Migrări, configurație, push/merge, deployment, promovare și probe care scriu în producție necesită aprobări explicite, distincte. |

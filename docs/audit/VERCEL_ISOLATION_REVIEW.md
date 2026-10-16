@@ -1,5 +1,7 @@
 # Vercel: izolarea Production / Preview
 
+Continuare punctuală: identitatea `andreiotac-sys` este recunoscută, lista echipelor este goală, iar citirea echipei și a proiectului cu scope explicit returnează 403; SSO/SAML nu sunt indicate ca active de eroare. Nu putem separa încă membershipul de granturile/consimțământul conectorului. [Pași UI pentru acces minim și confirmarea rezolvării](ACCESS_UNBLOCKING_STEPS.md), [dovezi noi](evidence/blocker-access-followup-20261016.json). Izolarea rămâne nedovedită.
+
 16.10.2026 — **izolare neconfirmată; NO-GO pentru push/deployment** până la verificare. Nu s-au modificat variabile, proiecte, deploymenturi sau aliasuri.
 
 Integrarea conectată a identificat proiectul `solash`, ID `prj_GZ5wCC5zUCTvpYMKK3EnZGEx9s1m`, echipa `team_ks9AvByOp9QSxzsQVDuQHdtz`, scope `andreiotac-sys-projects`. Citirea setărilor proiectului și a metadatelor variabilelor cu `decrypt=false` a eșuat cu **403 forbidden, lipsă acces la acest scope**. Nu au fost cerute valori decriptate. Nu există Vercel CLI sau acreditări CLI locale disponibile pentru fallback. [Dovadă](evidence/platform-access-20261016.json).

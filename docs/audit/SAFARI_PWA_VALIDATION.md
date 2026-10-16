@@ -1,5 +1,7 @@
 # Safari / PWA — verificări suplimentare
 
+Pentru proprietar există acum o [listă iPhone fără scrieri de programări pe aplicația publicată](IPHONE_LIVE_CHECKLIST.md). Rezultatele de mai jos sunt exclusiv locale; corecțiile dezvoltării nu sunt declarate live. Probele de scriere, cold start offline și schimbarea de build rămân pe mediu izolat.
+
 16.10.2026. Safari real pe macOS, versiunea din meniul Develop **27.0**, a devenit accesibil. Testele au folosit exclusiv `http://127.0.0.1:3133`, cu URL/key/service-role Supabase explicit goale. Nicio rezervare de test nu a fost trimisă la producție.
 
 | Verificare nouă | Rezultat și limită |
