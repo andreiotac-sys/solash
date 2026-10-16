@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import * as XLSX from "xlsx";
 import { createHash } from "node:crypto";
 import { getServerSupabase } from "@/lib/push-server";
+import { createBackupWorkbook } from "@/lib/backup-workbook";
 
 export const runtime = "nodejs";
 
@@ -108,15 +108,7 @@ const runBackup = async () => {
     }
   }
 
-  const workbook = XLSX.utils.book_new();
-  for (const [table, sheet] of backupTables) {
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rowsByTable[table]), sheet);
-  }
-
-  const fileBuffer = XLSX.write(workbook, {
-    type: "buffer",
-    bookType: "xlsx",
-  }) as Buffer;
+  const fileBuffer = await createBackupWorkbook(backupTables, rowsByTable);
 
   const path = `daily/solash-backup-${formatNowForFilename()}.xlsx`;
   const uploadResponse = await supabase.storage
