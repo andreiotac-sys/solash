@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, MouseEvent, PointerEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { DayPicker } from "react-day-picker";
-import * as XLSX from "xlsx";
+import writeExcelFile from "write-excel-file/browser";
 import "react-day-picker/dist/style.css";
 import {
   baseServices,
@@ -318,6 +318,12 @@ const renderWhatsAppTemplate = (template: string, appointment: Appointment) => {
 
 const ACTIVE_APPOINTMENT_STATUS = "Programata";
 const CANCELLED_APPOINTMENT_STATUS = "Anulata";
+
+const bookingWriteErrorText = (code: string | undefined, fallback: string) => {
+  if (code === "23P01") return "Intervalul a fost ocupat intre timp de o programare sau un blocaj personal. Reincarca agenda si alege alta ora.";
+  if (code === "22023") return "Data, ora sau durata programarii este invalida.";
+  return fallback;
+};
 
 const isCancelledStatus = (status: string) => status === CANCELLED_APPOINTMENT_STATUS;
 
@@ -1530,14 +1536,16 @@ export default function Home() {
     )
     .reduce((sum, appointment) => sum + appointment.price, 0);
 
-  const todaysWindow = useMemo(() => {
-    if (appointmentsForSelectedDate.length === 0) {
-      return "Fara programari";
-    }
-    const first = appointmentsForSelectedDate[0];
-    const last = appointmentsForSelectedDate[appointmentsForSelectedDate.length - 1];
-    return `${first.start} - ${last.start}`;
-  }, [appointmentsForSelectedDate]);
+  const outsideScheduleAppointments = useMemo(() =>
+    appointmentsForDayAll.filter((appointment) => {
+      if (isCancelledAppointment(appointment)) return false;
+      const start = timeToMinutes(appointment.start);
+      const end = start + parseDurationToMinutes(appointment.duration);
+      return !workWindowsForSelectedDate.some((windowRange) =>
+        start >= windowRange.start && end <= windowRange.end
+      );
+    }),
+  [appointmentsForDayAll, workWindowsForSelectedDate]);
 
   const reminderDate = addDays(appointmentDate, 1);
   const reminderCount = appointments.filter(
@@ -1764,6 +1772,7 @@ export default function Home() {
     const clientIdMap: Record<number, number> = {};
     const appointmentIdMap: Record<number, number> = {};
     const serviceIdMap: Record<number, number> = {};
+    let skippedProtectedDelete = false;
 
     for (const op of queue) {
       if (op.type === "upsert_client") {
@@ -1818,8 +1827,21 @@ export default function Home() {
       if (op.type === "delete_client") {
         const targetId = clientIdMap[op.id] ?? op.id;
         if (targetId > 0) {
+          const related = await supabase
+            .from("appointments")
+            .select("id", { head: true, count: "exact" })
+            .eq("client_id", targetId);
+          if (related.error || related.count === null) {
+            setToast({ text: "Nu pot verifica istoricul clientei. Sincronizarea stergerii a fost oprita.", type: "error" });
+            return;
+          }
+          if (related.count > 0) {
+            skippedProtectedDelete = true;
+            continue;
+          }
           const { error } = await supabase.from("clients").delete().eq("id", targetId);
           if (error) {
+            setToast({ text: error.code === "23503" ? "Clienta are istoric de programari si nu poate fi stearsa." : "Stergerea clientei nu s-a sincronizat. Incearca din nou.", type: "error" });
             return;
           }
         }
@@ -1845,6 +1867,7 @@ export default function Home() {
             .update(payload)
             .eq("id", rec.id);
           if (error) {
+            setToast({ text: bookingWriteErrorText(error.code, "Sincronizarea programarii a esuat. Modificarile sunt inca pe dispozitiv."), type: "error" });
             return;
           }
         } else {
@@ -1858,6 +1881,7 @@ export default function Home() {
             )
             .single();
           if (error) {
+            setToast({ text: bookingWriteErrorText(error.code, "Sincronizarea programarii a esuat. Modificarile sunt inca pe dispozitiv."), type: "error" });
             return;
           }
           const row = supportsAppointmentNotes
@@ -1876,6 +1900,19 @@ export default function Home() {
       if (op.type === "delete_appointment") {
         const targetId = appointmentIdMap[op.id] ?? op.id;
         if (targetId > 0) {
+          const existing = await supabase
+            .from("appointments")
+            .select("service")
+            .eq("id", targetId)
+            .maybeSingle();
+          if (existing.error) {
+            setToast({ text: "Nu pot verifica blocajul personal. Sincronizarea stergerii a fost oprita.", type: "error" });
+            return;
+          }
+          if (existing.data?.service !== PERSONAL_BLOCK_SERVICE) {
+            skippedProtectedDelete = true;
+            continue;
+          }
           const { error } = await supabase
             .from("appointments")
             .delete()
@@ -1936,7 +1973,9 @@ export default function Home() {
 
     writeOfflineQueue([]);
     setPendingOpsCount(0);
-    setToast({ text: "Datele adaugate offline au fost sincronizate.", type: "success" });
+    setToast(skippedProtectedDelete
+      ? { text: "Istoricul programarilor a fost pastrat. Reincarca datele pentru a vedea programarile.", type: "error" }
+      : { text: "Datele adaugate offline au fost sincronizate.", type: "success" });
   }, [isOnline, session, supportsAppointmentNotes, supportsServicesTable]);
 
   useEffect(() => {
@@ -2455,25 +2494,11 @@ export default function Home() {
           service.active ? "Activ" : "Inactiv",
         ]);
 
-      const workbook = XLSX.utils.book_new();
-      const clientsSheet = XLSX.utils.aoa_to_sheet([
-        ["Nume", "Telefon", "Observatii", "Vizite", "Ultima vizita"],
-        ...clientsRows,
-      ]);
-      const appointmentsSheet = XLSX.utils.aoa_to_sheet([
-        ["Data", "Ora", "Clienta", "Telefon", "Serviciu", "Durata", "Pret", "Status", "Observatii"],
-        ...appointmentsRows,
-      ]);
-      const servicesSheet = XLSX.utils.aoa_to_sheet([
-        ["Serviciu", "Durata", "Pret", "Status"],
-        ...servicesRows,
-      ]);
-
-      XLSX.utils.book_append_sheet(workbook, clientsSheet, "Cliente");
-      XLSX.utils.book_append_sheet(workbook, appointmentsSheet, "Programari");
-      XLSX.utils.book_append_sheet(workbook, servicesSheet, "Servicii");
-
-      XLSX.writeFile(workbook, `solash-export-${todayIso()}.xlsx`);
+      await writeExcelFile([
+        { sheet: "Cliente", data: [["Nume", "Telefon", "Observatii", "Vizite", "Ultima vizita"], ...clientsRows] },
+        { sheet: "Programari", data: [["Data", "Ora", "Clienta", "Telefon", "Serviciu", "Durata", "Pret", "Status", "Observatii"], ...appointmentsRows] },
+        { sheet: "Servicii", data: [["Serviciu", "Durata", "Pret", "Status"], ...servicesRows] },
+      ]).toFile(`solash-export-${todayIso()}.xlsx`);
 
       setToast({
         text: "Am exportat fisier Excel cu 3 sheet-uri: Cliente, Programari, Servicii.",
@@ -2698,7 +2723,7 @@ export default function Home() {
 
     const { error } = await supabase.from("clients").delete().eq("id", clientId);
     if (error) {
-      setToast({ text: "Nu am putut sterge clienta.", type: "error" });
+      setToast({ text: error.code === "23503" ? "Clienta are istoric de programari si nu poate fi stearsa." : "Nu am putut sterge clienta.", type: "error" });
       return;
     }
 
@@ -2844,30 +2869,11 @@ export default function Home() {
         .single();
 
       if (response.error) {
-        const nextAppointments = appointments
-          .map((appointment) =>
-            appointment.id === editingAppointmentId ? optimisticAppointment : appointment
-          )
-          .sort((a, b) => {
-            if (a.date === b.date) {
-              return a.start.localeCompare(b.start);
-            }
-            return a.date.localeCompare(b.date);
-          });
-        setAppointments(nextAppointments);
-        persistLocalState({ appointments: nextAppointments });
-        enqueueOfflineOp({
-          type: "upsert_appointment",
-          record: optimisticAppointment,
-        });
         setToast({
-          text: "Programarea a fost actualizata offline. Se sincronizeaza la reconectare.",
-          type: "success",
+          text: bookingWriteErrorText(response.error.code, "Nu am putut actualiza programarea. Verifica legatura si incearca din nou."),
+          type: "error",
         });
-        resetAppointmentForm(service, { date: savedAppointmentDate });
-        setSaveWarning(null);
         setIsSavingAppointment(false);
-        setActiveTab("home");
         return;
       }
 
@@ -2905,7 +2911,7 @@ export default function Home() {
         .single();
 
       if (response.error) {
-        setToast({ text: "Nu am putut salva programarea in Supabase.", type: "error" });
+        setToast({ text: bookingWriteErrorText(response.error.code, "Nu am putut salva programarea in Supabase."), type: "error" });
         setIsSavingAppointment(false);
         return;
       }
@@ -3074,7 +3080,7 @@ export default function Home() {
       .single();
 
     if (response.error) {
-      setToast({ text: "Nu am putut salva blocajul in Supabase.", type: "error" });
+      setToast({ text: bookingWriteErrorText(response.error.code, "Nu am putut salva blocajul in Supabase."), type: "error" });
       setIsSavingPersonalBlock(false);
       return;
     }
@@ -3179,7 +3185,7 @@ export default function Home() {
           current.map((item) => (item.id === appointment.id ? appointment : item))
         )
       );
-      setToast({ text: "Nu am putut muta programarea.", type: "error" });
+      setToast({ text: bookingWriteErrorText(error.code, "Nu am putut muta programarea."), type: "error" });
       return;
     }
 
@@ -3560,6 +3566,11 @@ export default function Home() {
   };
 
   const handleDeleteAppointment = async (id: number) => {
+    const appointment = appointments.find((item) => item.id === id);
+    if (isSupabaseConfigured && (!appointment || !isPersonalBlock(appointment))) {
+      setToast({ text: "Pastreaza istoricul programarilor: foloseste Anuleaza pentru aceasta programare.", type: "error" });
+      return;
+    }
     if (!confirm("Sigur vrei sa stergi programarea?")) {
       return;
     }
@@ -3945,7 +3956,7 @@ export default function Home() {
                 onClick={() => {
                   setActiveTab("appointments");
                   setActivePanel("appointment");
-                  resetAppointmentForm();
+                  resetAppointmentForm(undefined, { date: appointmentDate });
                 }}
                 type="button"
               >
@@ -4097,7 +4108,11 @@ export default function Home() {
             <section className="mt-6" ref={appointmentEditorRef}>
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Urmatoarea programare</h2>
-                <span className="text-sm text-muted">{todaysWindow}</span>
+                <span className="text-sm text-muted">
+                  {nextUpcomingAppointment
+                    ? `${nextUpcomingAppointment.start} - ${minutesToTime(timeToMinutes(nextUpcomingAppointment.start) + parseDurationToMinutes(nextUpcomingAppointment.duration))}`
+                    : "Fara programari"}
+                </span>
               </div>
               {nextUpcomingAppointment ? (
                 <article className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
@@ -4251,6 +4266,14 @@ export default function Home() {
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
                 <div className="space-y-2">
+                  {outsideScheduleAppointments.map((appointment) => (
+                    <div key={`outside-${appointment.id}`} className="rounded-[8px] border border-gold/60 bg-[#292318] px-3 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gold">Exceptie de program</p>
+                      <p className="mt-1 text-sm font-semibold">{appointment.start} - {minutesToTime(timeToMinutes(appointment.start) + parseDurationToMinutes(appointment.duration))} · {appointment.clientName}</p>
+                      <p className="mt-1 text-xs text-muted">{appointment.service}</p>
+                      <button className="mt-2 rounded-[8px] border border-gold/50 px-3 py-2 text-xs font-semibold" onClick={() => startEditAppointment(appointment)} type="button">Editeaza</button>
+                    </div>
+                  ))}
                   {dayTimeline.segments.length > 0 ? (
                     dayTimeline.segments.map((segment) =>
                       segment.kind === "free" ? (
@@ -4750,7 +4773,7 @@ export default function Home() {
                               >
                                 Edit
                               </button>
-                              <button
+                              {(!isSupabaseConfigured || isPersonalBlock(appointment)) && <button
                                 className="rounded-[6px] border border-[#7a3131] bg-[#3a1515] px-2 py-1 text-[10px] font-semibold text-[#ffd1d1]"
                                 onClick={(event) => {
                                   event.stopPropagation();
@@ -4760,7 +4783,7 @@ export default function Home() {
                                 type="button"
                               >
                                 X
-                              </button>
+                              </button>}
                             </div>
                           </div>
                         ) : (
@@ -4779,7 +4802,7 @@ export default function Home() {
                               </p>
                             </div>
                             <div className="mt-2 flex gap-2">
-                              <button
+                              {(!isSupabaseConfigured || isPersonalBlock(appointment)) && <button
                                 className="rounded-[8px] border border-[#7a3131] bg-[#3a1515] px-2 py-1 text-xs font-semibold text-[#ffd1d1]"
                                 onClick={(event) => {
                                   event.stopPropagation();
@@ -4789,7 +4812,7 @@ export default function Home() {
                                 type="button"
                               >
                                 Sterge
-                              </button>
+                              </button>}
                               <button
                                 className="rounded-[8px] border border-[#2e6d51] bg-[#14382a] px-2 py-1 text-xs font-semibold text-[#b8ffd9]"
                                 onClick={(event) => {
@@ -5514,13 +5537,13 @@ export default function Home() {
                       >
                         Suna
                       </a>
-                      <button
+                      {(!isSupabaseConfigured || isPersonalBlock(appointment)) && <button
                         className="rounded-[8px] bg-[#7b2020] px-3 py-3 text-sm font-medium text-white"
                         onClick={() => void handleDeleteAppointment(appointment.id)}
                         type="button"
                       >
                         Sterge
-                      </button>
+                      </button>}
                     </div>
                   </article>
                 ))}
