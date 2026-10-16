@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "audit/solash-safe-improvements": false
+    }
+  },
   "crons": [
     {
       "path": "/api/push/send-reminders",
