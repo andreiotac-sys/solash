@@ -15,3 +15,7 @@ No production deployment was performed in this task. If a later approved deploym
 ## Database recovery is separate
 
 Git or Vercel rollback does not undo bookings, deletions, or schema changes. Never restore a dated snapshot directly over live production. Capture a fresh native backup, restore into an isolated database, compare IDs and update times with current production, preserve newer appointments, and obtain explicit owner approval for any production merge or restore. See [DATABASE_BACKUP_AND_RECOVERY.md](DATABASE_BACKUP_AND_RECOVERY.md).
+
+## Proposed migration rollback and limits
+
+None of the three proposed migrations has been applied to production. After a separately approved rollout, removing `solash_prevent_booking_overlap_trigger` and its two `solash_*` functions would remove database-level double-booking protection; first inspect current appointments and plan a controlled rollback. Restoring `ON DELETE CASCADE` or the previous broad authenticated appointment DELETE policy would reopen historical-data loss paths and is not an ordinary rollback. Each migration is transactional and uses a five-second lock timeout; an installation failure requires checking the final schema state before retrying. Exact inverse SQL, its risks, preflight, and isolated tests are described in [MIGRATION_READINESS.md](MIGRATION_READINESS.md). A native, schema-complete backup and isolated restore rehearsal remain prerequisites for any production schema decision. See [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) for the current release verdict.
