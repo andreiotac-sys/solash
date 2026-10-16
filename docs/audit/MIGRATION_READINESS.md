@@ -1,5 +1,7 @@
 # SoLash database migration readiness
 
+**Follow-up, 16 October 2026:** the actual production catalog is now read and structurally compatible with the proposals. See [PRODUCTION_SCHEMA_COMPATIBILITY.md](PRODUCTION_SCHEMA_COMPATIBILITY.md) for exact FK/RLS/column evidence, measured PG17.6 lock modes, backward compatibility, and recovery gates. The atomic file now takes its table lock before scanning legacy rows; the new concurrent-installation test and all 17 runtime tests passed on PG17.6 with reconstructed live public DDL. No production migration was executed. Earlier PG16 evidence below remains historical; this is still not a native-backup restore rehearsal.
+
 **16 October 2026 — proposal only. None of these migrations has been applied to production.** The three files in [`supabase/migrations`](../../supabase/migrations/README.md) must be reviewed against the actual production DDL, roles, grants, RLS policies, and data before separate owner approval. The seven-table verified snapshot does not include that metadata. The checked-in `schema.sql` declares `appointments.notes`, but that field was absent from the snapshot, demonstrating schema drift.
 
 | File | Intended effect | Failure mode / operational limit |

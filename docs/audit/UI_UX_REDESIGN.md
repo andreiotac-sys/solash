@@ -1,5 +1,7 @@
 # UI and UX changes
 
+**Follow-up, 16 October 2026:** real macOS Safari responsive checks now include local booking/calendar flows and switching false→true with cancelled history intact. A local-cache initialization overwrite was fixed and verified after full reload. This supersedes the earlier Safari-access timeout below; physical iPhone, installed PWA, touch and authenticated offline reconciliation remain open. See [SAFARI_PWA_VALIDATION.md](SAFARI_PWA_VALIDATION.md).
+
 The development branch adds a reversible home-screen redesign controlled by `NEXT_PUBLIC_SOLASH_NEW_UI`. The new interface is enabled unless the value is exactly `false`. Setting it to `false` at build time restores the previous home layout and styles without touching customer data. Booking and data logic remain shared between both appearances.
 
 The new home header shows the selected agenda date, previous/next day controls, a calendar picker, a return-to-today action, the next customer and time, and quick booking/customer actions before revenue summaries. Working-hour warnings now list the configured windows, and move actions ask before an exception. A confirmation never bypasses an appointment or personal-block overlap. Legacy active status values remain selectable during editing.

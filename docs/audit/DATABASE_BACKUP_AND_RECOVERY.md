@@ -1,5 +1,7 @@
 # Database backup and recovery audit — updated 2026-10-16
 
+**Follow-up:** actual public catalog and platform metadata are now accessible through read-only Supabase tools. The organization is Free; native-backup inventory is not exposed by the connected tools, and no native dump/restore has been verified. The private application bucket contains 130 XLSX files and one JSON snapshot, not proof of a native backup. Current source has 3,875 appointments, five more than the preserved snapshot. [NATIVE_BACKUP_RUNBOOK.md](NATIVE_BACKUP_RUNBOOK.md) records the precise remaining native backup and isolated restore steps. Earlier access limitations below describe the initial audit.
+
 ## Production baseline and access
 
 The latest successful GitHub `Production` deployment record points to `1a8d8b37dbb3da62a3aaddd3f2b48bbb1ceb9058` (2026-09-04). A local annotated tag, `solash-production-baseline-20261015`, points there. Live Vercel project configuration and alias were not independently inspected. The remote `main` tip matched this SHA on 2026-10-15; the local `origin/main` tracking ref was stale at `e148af0` before fetch. No production application-table row or schema was changed; the additional verified backup created one private Storage object.

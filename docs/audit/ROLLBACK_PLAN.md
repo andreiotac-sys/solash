@@ -1,5 +1,7 @@
 # Rollback plan
 
+The current operational procedure is [PRODUCTION_DEPLOYMENT_RUNBOOK.md](PRODUCTION_DEPLOYMENT_RUNBOOK.md), including per-file failure handling and approvals. Frontend rollback via `NEXT_PUBLIC_SOLASH_NEW_UI=false` has now been exercised in real macOS Safari on a local origin with synthetic persisted history. Do not clear localStorage or pending offline operations to force a refresh. Neither this flag nor a Vercel rollback reverses database migrations or restores deleted rows.
+
 ## Baseline
 
 The verified latest successful GitHub Production deployment record is `1a8d8b37dbb3da62a3aaddd3f2b48bbb1ceb9058`, recorded at 2026-09-04 18:42 UTC. The local annotated tag `solash-production-baseline-20261015` points to it. The tag has not been pushed or protected remotely. Local `main` was left unchanged; development work lives on `audit/solash-safe-improvements`.

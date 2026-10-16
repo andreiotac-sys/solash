@@ -1,8 +1,12 @@
 # SoLash — evaluarea pregătirii pentru producție
 
+**Continuare, 16.10.2026:** schema reală a fost acum verificată prin SELECT. Compatibilitatea celor trei migrări este confirmată la momentul citirii; testele noi pe PostgreSQL 17.6 au trecut. Safari real pe Mac, cache-ul local și revenirea UI au fost testate, iar suprascrierea cache-ului la inițializare a fost corectată. Backupul nativ complet, izolarea Vercel și iPhone/PWA rămân gate-uri deschise. Integrarea Vercel identifică proiectul, dar refuză setările/env metadata cu 403. [Checklistul actual](GO_NO_GO_CHECKLIST.md), [compatibilitatea exactă](PRODUCTION_SCHEMA_COMPATIBILITY.md) și [runbookul neexecutat](PRODUCTION_DEPLOYMENT_RUNBOOK.md) actualizează dovezile istorice de mai jos.
+
 **Situație la 16 octombrie 2026. Verdict: SoLash nu este încă pregătit pentru o lansare controlată în producție.** Modificările de pe `audit/solash-safe-improvements` au fost dezvoltate și testate fără schimbări ale rândurilor din tabelele aplicației, schemei sau deploymentului de producție. Un obiect privat cu snapshotul verificat a fost creat în Storage. Testele locale dovedesc recuperarea datelor din cele șapte tabele cunoscute și comportamentul propus al protecțiilor SQL; nu dovedesc recuperarea întregului proiect Supabase sau siguranța configurației Vercel.
 
 ## Baza păstrată și evidența codului
+
+Continuarea cu schema live, proba PG17.6, lockul de instalare și corecția cache-ului Safari: `16b3769338328c36d1d0211d66ef13c6631c6871`. Documentația de lansare este într-un commit local ulterior. Lista de mai jos păstrează identificatorii etapei precedente; verdictul curent și dovezile sunt în [GO_NO_GO_CHECKLIST.md](GO_NO_GO_CHECKLIST.md).
 
 | Element | Identificator / stare |
 | --- | --- |
@@ -62,10 +66,10 @@ Toate trei au fost aplicate numai în PostgreSQL-ul izolat și în stiva Supabas
 | Prioritate | Cerință încă nedovedită / risc | Următorul pas verificabil |
 | --- | --- | --- |
 | Blocant | Backupul verificat acoperă numai șapte tabele publice și nu este un dump nativ; schema reală și Auth/RLS/Storage nu au fost restaurate. | Obțineți backup nativ complet și repetați restaurarea într-un proiect Supabase izolat, inclusiv login, politici și Storage. Comparați obiectele din `pg_catalog` cu migrările. |
-| Blocant | Nu există acces la setările proiectului Vercel; izolarea variabilelor Production/Preview, ramurile și aliasul efectiv nu au fost confirmate. `vercel.json` declară cronurile pentru reminder și backup, dar nu dovedește configurația activă. | Inspectați în Vercel valorile și scopurile variabilelor fără a le afișa în raport; dovediți că Preview nu poate scrie în Supabase de producție înainte de push sau preview. |
-| Blocant | Cele trei migrări sunt numai propuneri locale. Schema live poate diferi de SQL-ul din repository, iar 13 suprapuneri istorice trebuie analizate înaintea oricărui rollout. | Revizuiți DDL-ul live, toate FK-urile/politicile RLS și ștergerile, formatele de durată/status și politica de lock; aprobați separat migrările și testați pe clonă fidelă. |
-| Important | Testele pe Safari/PWA/iPhone real, coada offline și reconcilierea după reconectare, drag/long-press, push și ICS nu sunt încheiate. Setările de program și coada offline sunt locale browserului. | Efectuați matricea de dispozitive și teste autentificate cu date izolate; capturați setările dispozitivului de lucru înainte de orice schimbare. |
-| Important | RLS live, lista de utilizatori Auth și drepturile nu au fost inspectate. SQL-ul din repository acordă oricărui utilizator autentificat acces larg. | Inventariați politicile/drepturile reale și definiți autorizarea administrativă. |
+| Blocant | Vercel identifică proiectul, dar setările și env metadata au returnat 403 pentru scope-ul echipei. Izolarea Production/Preview nu este dovedită. | Oferiți accesul de citire corect ori verificați manual [matricea Vercel](VERCEL_ISOLATION_REVIEW.md) înainte de orice push. |
+| Gate de execuție | Cele trei migrări sunt structural compatibile cu schema reală observată și au trecut pe PG17.6. Nu sunt aplicate în producție; restaurarea nativă fidelă și aprobarea sunt încă necesare. | Revizuiți [raportul exact](PRODUCTION_SCHEMA_COMPATIBILITY.md), refaceți preflightul în fereastră și aplicați numai în ordinea aprobată. |
+| Important | Safari pe Mac a trecut verificările locale; iPhone/PWA instalată, reconectarea autentificată, drag/long-press, push și ICS nu sunt încheiate. | Efectuați [matricea manuală](SAFARI_PWA_VALIDATION.md) cu date izolate; păstrați setările și operațiile dispozitivului real. |
+| Important | RLS live și privilegiile largi sunt confirmate; în Auth există un utilizator. Signup nu a fost inspectat. | Revizuiți TRUNCATE/TRIGGER și autorizarea; protecțiile propuse nu împiedică service-role sau un editor ostil. |
 | Important | Rutele ICS și unele citiri push nu sunt paginate; ICS pune un token în URL și include date sensibile. | Revizuiți paginarea, minimizarea datelor și distribuirea tokenului înainte de lansare. |
 
 ## Aprobări necesare și plan de revenire

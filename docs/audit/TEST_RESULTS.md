@@ -1,5 +1,13 @@
 # Test results — updated 2026-10-16
 
+## Follow-up with connected access and new local changes
+
+Read-only Supabase SELECTs now verify actual public columns, FK graph, RLS, indexes, triggers/functions, roles and aggregate data on PG17.6. Current appointments: 3,875; no invalid durations/overnight intervals/orphans, 13 historical overlap pairs. [Catalog evidence](evidence/production-schema-20261016.json).
+
+`migration_installation_isolated.py` passed on PostgreSQL 17.6 with reconstructed live public DDL and synthetic rows. A concurrent overnight write was waited for, then rejected by migration preflight; rollback left no partial function. All three files then installed and their locks were recorded. `db_guards_isolated.py` passed 17/17 on PG17.6, justified by the newly confirmed production major version and installation-lock change. The read-only inspection packet also passed with 16 result sections and `transaction_read_only=on`. [Hashes and evidence](evidence/migration-validation-20261016.json).
+
+Safari 27.0 on macOS passed responsive 375/430 px booking/calendar/edit/cancel flows with local data. An initialization cache overwrite was fixed; a new client/booking remained after full reload. Flag=false restored the previous frontend with cancelled history intact; a new true production-mode local build then loaded on the same origin. Lint, 22 Node tests and the Webpack build with TypeScript passed after the cache fix. [Safari limits](SAFARI_PWA_VALIDATION.md) and [current release gates](GO_NO_GO_CHECKLIST.md) supersede unavailable-access statements in the historical table below.
+
 All state-changing application tests below used isolated PostgreSQL or local Supabase with synthetic records. The seven known production tables were exported read-only; a private production Storage object was created and verified for the authorized snapshot. No test changed application-table rows or the production schema.
 
 | Check | Result and limit |
