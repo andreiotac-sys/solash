@@ -134,6 +134,7 @@ type PushLog = {
 };
 type SupabaseAppointmentRowWithoutNotes = Omit<SupabaseAppointmentRow, "notes">;
 type SaveWarning = {
+  target?: "appointment" | "personal";
   title: string;
   details: string[];
 };
@@ -2998,29 +2999,35 @@ export default function Home() {
     setActiveTab("home");
   };
 
-  const handleSavePersonalBlock = async () => {
+  const handleSavePersonalBlock = async (skipWarning = false) => {
     const title = personalBlockTitle.trim();
     const blockStatus = appointments.find((item) => item.id === editingPersonalBlockId)?.status ?? ACTIVE_APPOINTMENT_STATUS;
-    const durationMinutes = parseDurationToMinutes(personalBlockDuration);
     if (!title) {
       setToast({ text: "Scrie cum vrei sa apara blocajul in calendar.", type: "error" });
       return;
     }
-    if (durationMinutes <= 0) {
-      setToast({ text: "Durata blocajului nu este valida.", type: "error" });
+    const bookingCheck = checkBooking({
+      date: personalBlockDate,
+      start: personalBlockTime,
+      duration: personalBlockDuration,
+      editingId: editingPersonalBlockId,
+      appointments,
+      settings: businessSettings,
+    });
+    if (bookingCheck.kind === "invalid") {
+      setToast({ text: "Data, ora sau durata blocajului nu este valida.", type: "error" });
       return;
     }
-
-    if (!fitsInsideWorkWindows(personalBlockDate, personalBlockTime, personalBlockDuration)) {
-      setToast({ text: "Blocajul este in afara programului setat.", type: "error" });
-      return;
-    }
-
-    const dayAppointments = appointments.filter(
-      (appointment) => appointment.date === personalBlockDate
-    );
-    if (hasConflict(editingPersonalBlockId, personalBlockDate, personalBlockTime, personalBlockDuration, dayAppointments)) {
+    if (bookingCheck.kind === "conflict") {
       setToast({ text: "Blocajul se suprapune cu alta programare.", type: "error" });
+      return;
+    }
+    if (bookingCheck.kind === "outside_hours" && !skipWarning) {
+      setSaveWarning({
+        target: "personal",
+        title: "Blocaj in afara programului",
+        details: [`${fullDateLabel(personalBlockDate)}, ${personalBlockTime} • ${personalBlockDuration}: intervalul este in afara programului setat. Poti salva acest blocaj ca exceptie, fara sa modifici orarul obisnuit.`],
+      });
       return;
     }
 
@@ -3086,6 +3093,7 @@ export default function Home() {
             : editingPersonalBlockId === null ? "Blocajul personal a fost adaugat." : "Blocajul personal a fost actualizat.",
         type: "success",
       });
+      setSaveWarning(null);
       setIsSavingPersonalBlock(false);
       return;
     }
@@ -3152,6 +3160,7 @@ export default function Home() {
     const newAppointment = mapAppointmentRow(row);
     setAppointments((current) => sortAppointmentsByDateTime([...current.filter((item) => item.id !== editingPersonalBlockId), newAppointment]));
     setToast({ text: editingPersonalBlockId === null ? "Blocajul personal a fost adaugat." : "Blocajul personal a fost actualizat.", type: "success" });
+    setSaveWarning(null);
     setIsSavingPersonalBlock(false);
   };
 
@@ -4267,7 +4276,8 @@ export default function Home() {
                 </button>
                 <button
                   className="rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black"
-                  onClick={() => void handleSaveAppointment(true)}
+                  disabled={isSavingAppointment || isSavingPersonalBlock}
+                  onClick={() => void (saveWarning.target === "personal" ? handleSavePersonalBlock(true) : handleSaveAppointment(true))}
                   type="button"
                 >
                   Da, salveaza

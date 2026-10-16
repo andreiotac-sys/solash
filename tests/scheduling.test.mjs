@@ -37,3 +37,11 @@ test('hours override cannot override a booking conflict', () => { const configur
 test('adjacent appointments may touch', () => assert.equal(check({ start: '10:00', duration: '1h', appointments: [existing(1, '2026-09-08', '09:00', '1h')] }).kind, 'valid'));
 test('invalid time or duration is rejected', () => { assert.equal(check({ start: '25:00' }).kind, 'invalid'); assert.equal(check({ duration: '0min' }).kind, 'invalid'); });
 test('end past midnight is rejected', () => assert.equal(check({ start: '23:00', duration: '2h' }).kind, 'invalid'));
+
+// Sunday exceptions may bypass hours warnings, never validation or conflicts.
+test('closed Sunday is an hours warning, not invalid', () => {
+  const configured = settings(); configured.schedule[6].enabled = false;
+  assert.equal(check({ date: '2026-10-18', settings: configured }).kind, 'outside_hours');
+  assert.equal(check({ date: '2026-10-18', settings: configured, appointments: [existing(70, '2026-10-18', '17:00', '1h', 'Programata', 'Blocaj personal')] }).kind, 'conflict');
+  assert.equal(check({ date: '2026-10-18', start: '23:00', duration: '2h', settings: configured }).kind, 'invalid');
+});

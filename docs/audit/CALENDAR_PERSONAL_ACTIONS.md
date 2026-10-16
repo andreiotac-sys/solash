@@ -35,3 +35,9 @@ Target: existing Vercel team `andreiotac-sys-projects`, project `solash`, produc
 Frontend rollback: set Production `NEXT_PUBLIC_SOLASH_NEW_UI=false` and redeploy the same release to restore the previous frontend theme/logo. For full code rollback, use Vercel Instant Rollback to the previous Production deployment at `1a8d8b3` (preserved baseline tag `solash-production-baseline-20261015`). Reverting frontend/code does not revert customer status changes or other legitimate writes made after release. Do not restore old data over production as a frontend recovery step.
 
 Existing backup inventory, authorization and database concurrency readiness limitations remain documented in the readiness reports; this UI release is not evidence that those blockers have been resolved. The three proposed SQL migrations remain unapplied.
+
+## Sunday exception fix — 16 October 2026
+
+Personal-block creation previously rejected closed days and out-of-hours intervals outright. It now uses the shared booking validator: invalid intervals and overlaps remain blocking, while closed days/out-of-hours produce a warning with `Nu` / `Da, salveaza`. The latter explicitly confirms only the hours exception; validation and conflict detection run again before saving. The recurring schedule is not changed. Customer booking creation already supported confirmation and was verified again.
+
+Loopback browser tests with all Supabase credentials blank: Sunday 18 October 2026, personal block 10:00–11:30, decline leaves no record, confirm saves; duplicate overlap rejected; customer booking 12:00–13:00 warns then saves; both remain visible after reload in the monthly calendar. A regression test covers a disabled Sunday, conflict priority and an invalid overnight interval. Automated suite: 23/23 pass. No production test rows or schema changes.
