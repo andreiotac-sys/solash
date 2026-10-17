@@ -1,0 +1,182 @@
+[
+  {
+    "screen": "acasa",
+    "darkSurfaces": [],
+    "scrollWidth": 1280,
+    "width": 1280
+  },
+  {
+    "screen": "luna",
+    "darkSurfaces": [],
+    "scrollWidth": 1280,
+    "width": 1280
+  },
+  {
+    "screen": "programari",
+    "darkSurfaces": [],
+    "scrollWidth": 1280,
+    "width": 1280
+  },
+  {
+    "screen": "cliente",
+    "darkSurfaces": [],
+    "scrollWidth": 1280,
+    "width": 1280
+  },
+  {
+    "screen": "rapoarte",
+    "darkSurfaces": [],
+    "scrollWidth": 1280,
+    "width": 1280
+  },
+  {
+    "screen": "setari",
+    "darkSurfaces": [],
+    "scrollWidth": 1280,
+    "width": 1280
+  },
+  {
+    "screen": "acasa",
+    "darkSurfaces": [],
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "screen": "luna",
+    "darkSurfaces": [],
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "screen": "programari",
+    "darkSurfaces": [],
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "screen": "cliente",
+    "darkSurfaces": [],
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "screen": "rapoarte",
+    "darkSurfaces": [],
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "screen": "setari",
+    "darkSurfaces": [],
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "screen": "acasa",
+    "darkSurfaces": [],
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "screen": "luna",
+    "darkSurfaces": [],
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "screen": "programari",
+    "darkSurfaces": [],
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "screen": "cliente",
+    "darkSurfaces": [],
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "screen": "rapoarte",
+    "darkSurfaces": [],
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "screen": "setari",
+    "darkSurfaces": [],
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "screen": "acasa",
+    "darkSurfaces": [],
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "luna",
+    "darkSurfaces": [],
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "programari",
+    "darkSurfaces": [],
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "cliente",
+    "darkSurfaces": [],
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "rapoarte",
+    "darkSurfaces": [],
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "setari",
+    "darkSurfaces": [],
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "acasa",
+    "darkSurfaces": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "luna",
+    "darkSurfaces": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "programari",
+    "darkSurfaces": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "cliente",
+    "darkSurfaces": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "rapoarte",
+    "darkSurfaces": [],
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "setari",
+    "darkSurfaces": [],
+    "scrollWidth": 375,
+    "width": 375
+  }
+]

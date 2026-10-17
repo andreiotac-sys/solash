@@ -24,8 +24,8 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "SoLash";
   const options = {
     body: payload.body || "Ai un reminder nou.",
-    icon: "/solash-icon-192-v3.png",
-    badge: "/favicon-32-v3.png",
+    icon: "/solash-icon-192-v4.png",
+    badge: "/favicon-32-v4.png",
     data: {
       url: payload.url || "/",
     },

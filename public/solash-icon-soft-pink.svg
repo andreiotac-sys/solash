@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#fff9f7"/>
+  <circle cx="256" cy="256" r="197" fill="#f7e7ed"/>
+  <circle cx="256" cy="256" r="178" fill="none" stroke="#dfc5d0" stroke-width="2"/>
+  <path d="M123 192c64 79 202 79 266 0" fill="none" stroke="#98556d" stroke-width="14" stroke-linecap="round"/>
+  <g fill="none" stroke="#98556d" stroke-width="10" stroke-linecap="round">
+    <path d="m139 210-26 32m64-6-19 40m60-27-7 43m83-43 7 43m35-56 19 40m21-66 26 32"/>
+  </g>
+  <path d="m369 116 7 18 18 7-18 7-7 18-7-18-18-7 18-7Z" fill="#a28ab6"/>
+  <text x="256" y="374" text-anchor="middle" fill="#542c3d" font-size="72" font-family="Georgia,serif" letter-spacing="-3">SoLash</text>
+</svg>
