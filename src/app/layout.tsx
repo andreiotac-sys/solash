@@ -6,7 +6,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: process.env.NEXT_PUBLIC_SOLASH_NEW_UI === "false" ? "#090806" : "#fff8fb",
+  themeColor: process.env.NEXT_PUBLIC_SOLASH_NEW_UI === "false" ? "#090806" : "#0d0e10",
 };
 
 export const metadata: Metadata = {
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: process.env.NEXT_PUBLIC_SOLASH_NEW_UI === "false" ? "black-translucent" : "default",
+    statusBarStyle: "black-translucent",
     title: "SoLash",
   },
   formatDetection: {

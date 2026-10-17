@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Programari premium pentru extensii de gene.",
     start_url: "/",
     display: "standalone",
-    background_color: process.env.NEXT_PUBLIC_SOLASH_NEW_UI === "false" ? "#050505" : "#fff8fb",
-    theme_color: process.env.NEXT_PUBLIC_SOLASH_NEW_UI === "false" ? "#050505" : "#fff8fb",
+    background_color: process.env.NEXT_PUBLIC_SOLASH_NEW_UI === "false" ? "#050505" : "#0d0e10",
+    theme_color: process.env.NEXT_PUBLIC_SOLASH_NEW_UI === "false" ? "#050505" : "#0d0e10",
     lang: "ro",
     orientation: "portrait",
     icons: [

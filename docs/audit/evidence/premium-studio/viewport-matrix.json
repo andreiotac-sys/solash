@@ -1,0 +1,74 @@
+[
+  {
+    "screen": "acasa",
+    "height": 1008,
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "luna",
+    "height": 1620,
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "programari",
+    "height": 1751,
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "cliente",
+    "height": 1585,
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "rapoarte",
+    "height": 1685,
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "setari",
+    "height": 1098,
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "screen": "acasa",
+    "height": 1011,
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "luna",
+    "height": 1620,
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "programari",
+    "height": 1751,
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "cliente",
+    "height": 1585,
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "rapoarte",
+    "height": 1685,
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "screen": "setari",
+    "height": 1084,
+    "scrollWidth": 390,
+    "width": 390
+  }
+]

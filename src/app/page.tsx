@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { SettingsGroup, StudioBrand, StudioDashboard, StudioEmptyState, StudioUpdateNotice, StudioClientCard } from "@/components/studio-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, MouseEvent, PointerEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
@@ -17,6 +18,7 @@ import {
   mapServiceRow,
 } from "@/lib/demo-data";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { getCustomerReportingAppointments, isPersonalBlock } from "@/lib/reporting";
 import {
   checkBooking,
   getWorkWindowsForDate,
@@ -55,24 +57,6 @@ const DEFAULT_BREAK_START = "13:00";
 const DEFAULT_BREAK_END = "14:00";
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 const newUI = process.env.NEXT_PUBLIC_SOLASH_NEW_UI !== "false";
-
-function StudioBrand() {
-  return (
-    <div className="studio-brand" aria-label="SoLash, beauty studio">
-      <span className="studio-brand-symbol" aria-hidden="true">
-        <svg viewBox="0 0 64 48" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M9 19c11 15 35 15 46 0" strokeWidth="3.4" />
-          <path d="m12 23-5 6m12-1-4 8m11-6-1 9m10-9 1 9m7-11 4 8m4-13 6 6" />
-          <path d="m47 7 1.5 3.5L52 12l-3.5 1.5L47 17l-1.5-3.5L42 12l3.5-1.5Z" fill="currentColor" stroke="none" />
-        </svg>
-      </span>
-      <div>
-        <p className="studio-brand-name">So<span>Lash</span><span className="studio-brand-dot">.</span></p>
-        <p className="studio-brand-caption">BEAUTY STUDIO</p>
-      </div>
-    </div>
-  );
-}
 
 function AppointmentCancelDialog({ appointment, busy, onDismiss, onConfirm }: {
   appointment: Appointment;
@@ -256,7 +240,7 @@ const minutesToDurationInput = (total: number) => {
   return `${minutes}min`;
 };
 
-const CALENDAR_HOUR_HEIGHT = 72;
+const CALENDAR_HOUR_HEIGHT = 104;
 const CALENDAR_SNAP_MINUTES = 15;
 const CALENDAR_MOVE_HOLD_MS = 900;
 const CALENDAR_CREATE_HOLD_MS = 650;
@@ -321,10 +305,6 @@ const formatPhoneForWhatsApp = (phone: string) => {
 const isPersonalClient = (client: Client) =>
   client.notes.includes(PERSONAL_CLIENT_MARKER) ||
   (client.phone === PERSONAL_BLOCK_PHONE && LEGACY_PERSONAL_BLOCK_PRESETS.includes(client.name));
-
-const isPersonalBlock = (appointment: Appointment) =>
-  appointment.service === PERSONAL_BLOCK_SERVICE ||
-  appointment.notes.includes(PERSONAL_BLOCK_MARKER);
 
 const readWhatsAppTemplate = () => {
   if (typeof window === "undefined") {
@@ -622,6 +602,8 @@ const legalHolidayByDate = new Map(
 export default function Home() {
   const appointmentEditorRef = useRef<HTMLElement | null>(null);
   const appointmentFormCardRef = useRef<HTMLDivElement | null>(null);
+  const historyRegionRef = useRef<HTMLDivElement | null>(null);
+  const reportMonthButtonRef = useRef<HTMLButtonElement | null>(null);
   const calendarTimelineRef = useRef<HTMLDivElement | null>(null);
   const calendarMoveHoldTimerRef = useRef<number | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
@@ -1241,7 +1223,7 @@ export default function Home() {
   );
 
   const calendarDayStats = useMemo(() => {
-    const stats = new Map<string, { count: number; busyMinutes: number }>();
+    const stats = new Map<string, { count: number; busyMinutes: number; personalCount: number }>();
     for (const appointment of appointments) {
       if (isCancelledAppointment(appointment)) {
         continue;
@@ -1250,8 +1232,9 @@ export default function Home() {
       const start = timeToMinutes(appointment.start);
       const end = start + parseDurationToMinutes(appointment.duration);
       const minutes = getOverlapMinutesInWindows(start, end, windows);
-      const current = stats.get(appointment.date) ?? { count: 0, busyMinutes: 0 };
+      const current = stats.get(appointment.date) ?? { count: 0, busyMinutes: 0, personalCount: 0 };
       current.count += 1;
+      if (isPersonalBlock(appointment)) current.personalCount += 1;
       current.busyMinutes += minutes;
       stats.set(appointment.date, current);
     }
@@ -1268,7 +1251,8 @@ export default function Home() {
       const date = new Date(start);
       date.setDate(start.getDate() + index);
       const iso = isoFromDate(date);
-      const stat = calendarDayStats.get(iso) ?? { count: 0, busyMinutes: 0 };
+      const stat = calendarDayStats.get(iso) ?? { count: 0, busyMinutes: 0, personalCount: 0 };
+      const isClosed = getWorkWindowsForDate(iso, businessSettings).length === 0;
       const holiday = legalHolidayByDate.get(iso) ?? null;
       return {
         iso,
@@ -1278,10 +1262,12 @@ export default function Home() {
         isToday: iso === todayIso(),
         holiday,
         count: stat.count,
+        personalCount: stat.personalCount,
+        isClosed,
         busyMinutes: stat.busyMinutes,
       };
     });
-  }, [appointmentDate, calendarDayStats, selectedMonth]);
+  }, [appointmentDate, businessSettings, calendarDayStats, selectedMonth]);
 
   const calendarTimeline = useMemo(() => {
     const activeAppointments = appointmentsForDayAll.filter(
@@ -1354,8 +1340,7 @@ export default function Home() {
   }, [reportYear]);
 
   const reportData = useMemo(() => {
-    const allAppointments = appointments
-      .filter((appointment) => appointment.date >= "2023-01-01")
+    const allAppointments = getCustomerReportingAppointments(appointments)
       .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
     const allNonCancelled = allAppointments.filter(
       (appointment) => !isCancelledAppointment(appointment)
@@ -2071,6 +2056,18 @@ export default function Home() {
     window.addEventListener("touchmove", preventTouchScroll, { passive: false });
     return () => window.removeEventListener("touchmove", preventTouchScroll);
   }, [draggingAppointmentId]);
+
+  useEffect(() => {
+    if (!newUI || !appointmentHistoryOpen || activeTab !== "appointments") return;
+    const frame = requestAnimationFrame(() => historyRegionRef.current?.scrollIntoView({block: "start", behavior: "instant"}));
+    return () => cancelAnimationFrame(frame);
+  }, [activeTab, appointmentHistoryOpen, appointmentHistoryClientId]);
+
+  useEffect(() => {
+    if (!newUI || activeTab !== "reports") return;
+    const frame = requestAnimationFrame(() => reportMonthButtonRef.current?.scrollIntoView({block: "nearest", inline: "center"}));
+    return () => cancelAnimationFrame(frame);
+  }, [activeTab, reportMonth]);
 
   const resetAppointmentForm = (
     service?: Service,
@@ -4005,16 +4002,16 @@ export default function Home() {
             Intra in aplicatie
           </h1>
           <p className="mt-2 text-sm leading-6 text-[#ddd4c5]">
-            Protejam datele clientelor si programarile inainte sa mergem mai departe.
+            {newUI ? "Bine ai revenit. Agenda studioului te așteaptă." : "Protejam datele clientelor si programarile inainte sa mergem mai departe."}
           </p>
 
-          <div className="mt-5 grid gap-3">
+          <form className="mt-5 grid gap-3" onSubmit={(event) => {event.preventDefault(); void handleAuth();}}>
             <label className="grid gap-2 text-sm">
               <span className="text-muted">Email</span>
               <input
                 className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                 onChange={(event) => setAuthEmail(event.target.value)}
-                type="email"
+                autoComplete="username" inputMode="email" required type="email"
                 value={authEmail}
               />
             </label>
@@ -4024,7 +4021,7 @@ export default function Home() {
               <input
                 className="rounded-[8px] border border-line bg-black px-3 py-3 outline-none"
                 onChange={(event) => setAuthPassword(event.target.value)}
-                type="password"
+                autoComplete="current-password" required type="password"
                 value={authPassword}
               />
             </label>
@@ -4032,12 +4029,11 @@ export default function Home() {
             <button
               className="rounded-[8px] bg-gold px-4 py-3 text-sm font-semibold text-black disabled:opacity-60"
               disabled={authBusy}
-              onClick={() => void handleAuth()}
-              type="button"
+              type="submit"
             >
               {authBusy ? "Se proceseaza..." : "Autentificare"}
             </button>
-          </div>
+          </form>
 
           {toast ? (
             <p
@@ -4058,7 +4054,11 @@ export default function Home() {
   return (
     <main className={`min-h-screen bg-background text-foreground ${newUI ? "solash-v2" : ""}`}>
       <div className="solash-shell mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-28 pt-6">
-        {activeTab === "home" ? (
+        {activeTab === "home" ? newUI ? (
+          <StudioDashboard date={appointmentDate} count={appointmentsForDayAll.filter((item) => !isCancelledAppointment(item)).length} freeMinutes={dayTimeline.totalFreeMinutes} revenue={formatPrice(appointmentsForDayAll.filter((item) => !isCancelledAppointment(item)).reduce((sum, item) => sum + item.price, 0))} next={nextUpcomingAppointment}
+            onPrevious={() => setAppointmentDate(addDays(appointmentDate, -1))} onNext={() => setAppointmentDate(addDays(appointmentDate, 1))} onDate={() => setShowCalendar(true)} onToday={() => setAppointmentDate(todayIso())}
+            onCreate={() => { setActiveTab("appointments"); setActivePanel("appointment"); resetAppointmentForm(undefined, {date: appointmentDate}); }} onClients={() => setActiveTab("clients")} onEditNext={() => { if (nextUpcomingAppointment) startEditAppointment(nextUpcomingAppointment); }} />
+        ) : (
           <section className="panel-glow gold-ring rounded-[8px] border border-line px-5 py-5" data-ui="home-hero">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -4216,6 +4216,9 @@ export default function Home() {
           </section>
         )}
 
+        {newUI ? <StudioUpdateNotice /> : null}
+        {newUI && (!isOnline || pendingOpsCount > 0) ? <div className="studio-connection" role="status">{!isOnline ? "Ești offline. Modificările sunt păstrate pe acest dispozitiv." : "Conectat. Se sincronizează modificările."}{pendingOpsCount > 0 ? ` ${pendingOpsCount} în așteptare.` : ""}</div> : null}
+
         {showCalendar ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" data-ui="dialog-backdrop">
             <div className="gold-ring w-full max-w-sm rounded-[8px] border border-line bg-panel p-4">
@@ -4287,7 +4290,18 @@ export default function Home() {
           </div>
         ) : null}
 
-        {activeTab === "home" ? (
+        {activeTab === "home" && newUI ? (
+          <section className="studio-agenda" aria-label="Agenda zilei">
+            <div className="studio-section-heading"><div><p className="studio-eyebrow">FIECARE INTERVAL CONTEAZĂ</p><h2>Agenda zilei</h2></div><button className="studio-link" type="button" onClick={() => setActiveTab("month")}>Calendar ↗</button></div>
+            {isLoading ? <div className="studio-skeleton" role="status">Se încarcă agenda…</div> : appointmentsForDayAll.length ? <div className="studio-agenda-list">{appointmentsForDayAll.map((appointment) => <article className="studio-agenda-item" data-personal={isPersonalBlock(appointment)} data-cancelled={isCancelledAppointment(appointment)} key={appointment.id}>
+              <div className="agenda-time"><strong>{appointment.start}</strong><span>{minutesToTime(timeToMinutes(appointment.start) + parseDurationToMinutes(appointment.duration))}</span></div>
+              <div className="agenda-body"><div className="agenda-title"><span className="agenda-avatar" aria-hidden="true">{isPersonalBlock(appointment) ? "✧" : appointment.clientName.split(" ").map((word) => word[0]).slice(0,2).join("")}</span><div><h3>{appointment.clientName}</h3><p>{isPersonalBlock(appointment) ? "Timp pentru mine" : appointment.service}</p></div></div><div className="agenda-meta"><span className={`status-pill ${isCancelledAppointment(appointment) ? "is-cancelled" : ""}`}>{appointment.status}</span><span>{appointment.duration}{!isPersonalBlock(appointment) ? ` · ${formatPrice(appointment.price)}` : ""}</span></div>{renderAppointmentActions(appointment)}</div>
+            </article>)}</div> : <StudioEmptyState title="O zi cu loc pentru lucruri frumoase" action="Adaugă o programare" onAction={() => {setActiveTab("appointments"); setActivePanel("appointment"); resetAppointmentForm(undefined, {date:appointmentDate});}}>Nu ai programări pentru această zi. Alege un interval în calendar sau adaugă prima clientă.</StudioEmptyState>}
+            {nextAvailableSlot ? <button className="studio-availability" type="button" onClick={jumpToNextAvailableSlot}><span className="studio-live-dot" /><span><small>URMĂTORUL INTERVAL DISPONIBIL</small><strong>{formatShortDate(nextAvailableSlot.date)} · {minutesToTime(nextAvailableSlot.start)}</strong></span><span aria-hidden="true">↗</span></button> : null}
+          </section>
+        ) : null}
+
+        {activeTab === "home" && !newUI ? (
           <div className="contents" data-ui="home-content">
             <section className="mt-6" ref={appointmentEditorRef}>
               <div className="mb-3 flex items-center justify-between">
@@ -4600,7 +4614,7 @@ export default function Home() {
               <div className="grid grid-cols-7 gap-1 bg-black p-2">
                 {monthGridDays.map((day) => {
                   const bars = Math.min(day.count, 5);
-                  const dayStateLabel = day.isSelected ? "ales" : day.isToday ? "azi" : "liber";
+                  const dayStateLabel = day.isSelected ? "ales" : day.isToday ? "azi" : day.count ? `${day.count} progr.` : day.isClosed ? "închis" : "liber";
                   const dayButtonClass = day.isSelected
                     ? "border-gold bg-[#2f2711] text-gold-strong ring-2 ring-gold-strong ring-offset-2 ring-offset-black shadow-[0_0_0_1px_rgba(255,217,122,0.22),0_0_22px_rgba(255,217,122,0.18)]"
                     : day.inCurrentMonth
@@ -4621,6 +4635,8 @@ export default function Home() {
                       data-today={day.isToday || undefined}
                       data-outside={!day.inCurrentMonth || undefined}
                       data-holiday={Boolean(day.holiday) || undefined}
+                      data-closed={day.isClosed || undefined}
+                      aria-label={`${fullDateLabel(day.iso)}${day.isToday ? ", azi" : ""}, ${day.count} programări, ${day.personalCount} blocaje personale${day.isClosed ? ", zi nelucrătoare" : ""}`}
                       className={`min-h-[68px] rounded-[4px] border px-1 py-2 text-center transition ${dayButtonClass}`}
                       onClick={() => {
                         setAppointmentDate(day.iso);
@@ -4638,7 +4654,7 @@ export default function Home() {
                               ? "text-[#d9bd63]"
                               : day.holiday
                                 ? "text-[#ffb2a8]"
-                                : "opacity-0"
+                                : day.count || day.isClosed ? "text-muted" : "opacity-0"
                         }`}
                       >
                         {dayStateLabel}
@@ -4651,7 +4667,7 @@ export default function Home() {
                               index < bars
                                 ? index === 4 && day.count > 4
                                   ? "bg-[#b477e8]"
-                                  : "bg-[#55b6e8]"
+                                  : index < day.personalCount ? "bg-[#57b888]" : "bg-[#55b6e8]"
                                 : day.inCurrentMonth
                                   ? "bg-[#1d1d1d]"
                                   : "bg-[#101010]"
@@ -4665,6 +4681,7 @@ export default function Home() {
               </div>
             </div>
 
+            {newUI ? <div className="studio-calendar-legend"><span><i />Cliente</span><span><i />Personal</span><span>Duminică / zi închisă: se poate salva cu confirmare</span></div> : null}
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs uppercase text-muted">
@@ -4902,6 +4919,7 @@ export default function Home() {
                       <div
                         key={`calendar-block-${appointment.id}`}
                         data-calendar-appointment
+                        data-personal={isPersonalBlock(appointment)}
                         data-compact={isCompact}
                         className={`absolute left-[76px] right-3 select-none overflow-hidden rounded-[8px] border shadow-sm ${serviceColors.border} ${serviceColors.bg} ${
                           isMoving ? "z-20 ring-2 ring-gold" : "cursor-grab active:cursor-grabbing"
@@ -4932,7 +4950,7 @@ export default function Home() {
                               </p>
                             </div>
                             <div className="flex shrink-0 gap-1">
-                              <button
+                              {(!newUI || !isPersonalBlock(appointment)) ? <button
                                 className="rounded-[6px] border border-[#2e6d51] bg-[#14382a] px-2 py-1 text-[10px] font-semibold text-[#b8ffd9]"
                                 onClick={(event) => {
                                   event.stopPropagation();
@@ -4942,7 +4960,7 @@ export default function Home() {
                                 type="button"
                               >
                                 WA
-                              </button>
+                              </button> : null}
                               {renderAppointmentActions(appointment)}
                             </div>
                           </div>
@@ -4962,7 +4980,7 @@ export default function Home() {
                               </p>
                             </div>
                             <div className="mt-2 flex gap-2">
-                              <button
+                              {(!newUI || !isPersonalBlock(appointment)) ? <button
                                 className="rounded-[8px] border border-[#2e6d51] bg-[#14382a] px-2 py-1 text-xs font-semibold text-[#b8ffd9]"
                                 onClick={(event) => {
                                   event.stopPropagation();
@@ -4972,7 +4990,7 @@ export default function Home() {
                                 type="button"
                               >
                                 WhatsApp
-                              </button>
+                              </button> : null}
                               {renderAppointmentActions(appointment)}
                             </div>
                           </>
@@ -4995,7 +5013,7 @@ export default function Home() {
 
         {activeTab === "appointments" ? (
           <>
-            <section className="mt-6">
+            <section className="mt-6" data-ui="booking-editor">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">
                   {activePanel === "appointment"
@@ -5009,7 +5027,7 @@ export default function Home() {
                       : "Clienta noua"}
                 </h2>
                 <span className="text-sm text-muted">
-                  {newUI ? "Organizare zilnică" : isSupabaseConfigured ? "Supabase" : "demo local"}
+                  {newUI ? "Agenda studioului" : isSupabaseConfigured ? "Supabase" : "demo local"}
                 </span>
               </div>
 
@@ -5086,7 +5104,7 @@ export default function Home() {
                       ) : null}
                     </label>
 
-                    <div className="rounded-[8px] border border-[#3f3522] bg-black/55 px-3 py-3 text-sm">
+                    <div data-ui="selected-client-summary" className="rounded-[8px] border border-[#3f3522] bg-black/55 px-3 py-3 text-sm">
                       <p className="text-xs uppercase text-muted">Clienta selectata</p>
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <p className="font-semibold">{selectedClient?.name ?? "Nicio clienta"}</p>
@@ -5345,7 +5363,7 @@ export default function Home() {
               </div>
 
               {appointmentHistoryOpen ? (
-                <div role="region" aria-label="Istoricul clientei" className="gold-ring mb-4 rounded-[8px] border border-line bg-[#202124]">
+                <div ref={historyRegionRef} role="region" aria-label="Istoricul clientei" className="gold-ring mb-4 rounded-[8px] border border-line bg-[#202124]">
                   <div className="flex items-center justify-between gap-3 border-b border-[#34363a] bg-[#2c2d31] px-3 py-3">
                     {appointmentHistoryClient ? (
                       <button
@@ -5619,6 +5637,8 @@ export default function Home() {
                       </p>
                     ) : null}
 
+                    <details className={newUI ? "studio-more-actions" : "contents"} open={!newUI}>
+                      {newUI ? <summary>Mai multe acțiuni <span aria-hidden="true">⌄</span></summary> : null}
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <button
                         className="rounded-[8px] bg-[#1f1f1f] px-3 py-3 text-sm font-medium text-foreground"
@@ -5664,6 +5684,7 @@ export default function Home() {
                       </button>
                     </div>
 
+                    {(!newUI || !isPersonalBlock(appointment)) ? (
                     <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
                       <button
                         className="w-full rounded-[8px] bg-gold px-3 py-3 text-center text-sm font-semibold text-black"
@@ -5686,6 +5707,8 @@ export default function Home() {
                         Sterge
                       </button>}
                     </div>
+                    ) : null}
+                    </details>
                   </article>
                 ))}
 
@@ -5700,7 +5723,7 @@ export default function Home() {
         ) : null}
 
         {activeTab === "clients" ? (
-          <section className="mt-6">
+          <section className="mt-6" data-ui="clients">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Cliente</h2>
               <span className="text-sm text-muted">{filteredClients.length} afisate</span>
@@ -5717,12 +5740,18 @@ export default function Home() {
             </label>
 
             <div className="grid gap-3">
+              {newUI && filteredClients.length === 0 ? <StudioEmptyState title="Nicio clientă găsită">Încearcă alt nume sau număr de telefon. Cliente noi se adaugă din Programări → Clientă.</StudioEmptyState> : null}
               {filteredClients.map((client) => {
                 const activity = clientActivityById.get(client.id);
                 const visits = activity?.visits ?? client.visits;
                 const lastVisit = activity?.lastVisit ?? client.lastVisit;
                 const cancellations = activity?.cancellations ?? 0;
-                return (
+                return newUI ? (
+                  <StudioClientCard key={client.id} name={client.name} phone={client.phone} notes={client.notes} visits={visits} cancellations={cancellations} lastVisit={lastVisit} historyProtected={appointments.some((appointment) => appointment.clientId === client.id)}
+                    onBook={() => {setActiveTab("appointments"); setActivePanel("appointment"); resetAppointmentForm(undefined, {date:appointmentDate}); setSelectedClientId(client.id); setScrollToEditorTick((value) => value + 1);}}
+                    onHistory={() => {setActiveTab("appointments"); setAppointmentHistoryOpen(true); setAppointmentHistoryClientId(client.id); setAppointmentHistorySearch("");}}
+                    onEdit={() => startEditClient(client)} onDelete={() => void handleDeleteClient(client.id)} />
+                ) : (
                   <article
                     key={client.id}
                     className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4"
@@ -5743,6 +5772,7 @@ export default function Home() {
                     {client.notes ? (
                       <p className="mt-3 text-sm leading-6 text-[#ddd4c5]">{client.notes}</p>
                     ) : null}
+
                     <div className="mt-4 grid grid-cols-2 gap-3">
                       <button
                         className="rounded-[8px] bg-[#1f1f1f] px-3 py-3 text-sm font-medium"
@@ -5767,7 +5797,7 @@ export default function Home() {
         ) : null}
 
         {activeTab === "reports" ? (
-          <section className="mt-6">
+          <section className="mt-6" data-ui="reports">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Rapoarte</h2>
               <span className="text-sm text-muted">Lunar</span>
@@ -5794,6 +5824,7 @@ export default function Home() {
               {reportMonthOptions.map((monthKey) => (
                 <button
                   key={monthKey}
+                  ref={reportMonth === monthKey ? reportMonthButtonRef : undefined}
                   className={`rounded-[8px] border px-3 py-2 text-sm whitespace-nowrap ${
                     reportMonth === monthKey
                       ? "border-gold bg-gold text-black"
@@ -5817,7 +5848,7 @@ export default function Home() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Venit luna</p>
+                <p className="text-xs text-muted">{newUI ? "Valoare programări" : "Venit luna"}</p>
                 <p className="mt-1 text-xl font-semibold text-gold">{formatPrice(reportData.totalRevenue)}</p>
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
@@ -5829,7 +5860,7 @@ export default function Home() {
                 <p className="mt-1 text-xl font-semibold">{reportData.uniqueClients}</p>
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Bon mediu luna</p>
+                <p className="text-xs text-muted">{newUI ? "Valoare medie" : "Bon mediu luna"}</p>
                 <p className="mt-1 text-xl font-semibold">{formatPrice(reportData.avgTicket)}</p>
               </div>
             </div>
@@ -5918,7 +5949,7 @@ export default function Home() {
               <div className="mt-3 space-y-2">
                 {reportData.hourlyLoad.map((slot) => {
                   const max = Math.max(1, ...reportData.hourlyLoad.map((item) => item.count));
-                  const width = slot.count === 0 ? 6 : Math.max(8, Math.round((slot.count / max) * 100));
+                  const width = slot.count === 0 ? 0 : Math.max(8, Math.round((slot.count / max) * 100));
                   return (
                     <div key={slot.label} className="grid grid-cols-[52px_1fr_38px] items-center gap-2">
                       <p className="text-xs text-muted">{slot.label}</p>
@@ -5935,14 +5966,15 @@ export default function Home() {
         ) : null}
 
         {activeTab === "settings" ? (
-          <section className="mt-6">
+          <section className="mt-6" data-ui="settings">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Setari</h2>
               <span className="text-sm text-muted">
-                {supportsServicesTable ? "servicii in Supabase" : "servicii locale"}
+                {newUI ? "Preferințele studioului" : supportsServicesTable ? "servicii in Supabase" : "servicii locale"}
               </span>
             </div>
 
+            <SettingsGroup legacy={!newUI} title="Notificări & remindere" description="Preferințe pentru acest dispozitiv">
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
               <p className="text-sm font-semibold">Notificari push</p>
               <p className="mt-2 text-sm text-[#ddd4c5]">
@@ -5986,11 +6018,13 @@ export default function Home() {
               </button>
               {!vapidPublicKey ? (
                 <p className="mt-3 text-sm text-[#ff9d9d]">
-                  Lipseste cheia publica VAPID in variabilele de mediu.
+                  {newUI ? "Notificările nu sunt disponibile momentan în acest mediu." : "Lipseste cheia publica VAPID in variabilele de mediu."}
                 </p>
               ) : null}
             </div>
+            </SettingsGroup>
 
+            <SettingsGroup legacy={!newUI} title="Export & recuperare" description="Copie Excel a datelor aplicației">
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
               <p className="text-sm font-semibold">Export date (Excel)</p>
               <p className="mt-2 text-sm text-[#ddd4c5]">
@@ -6005,7 +6039,9 @@ export default function Home() {
                 {isExportingCsv ? "Se exporta..." : "Exporta Excel (3 sheet-uri)"}
               </button>
             </div>
+            </SettingsGroup>
 
+            <SettingsGroup legacy={!newUI} title="Backup în cloud" description="Exporturi ale aplicației, păstrate în siguranță">
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
               <p className="text-sm font-semibold">Backup cloud automat</p>
               <p className="mt-2 text-sm text-[#ddd4c5]">
@@ -6023,7 +6059,9 @@ export default function Home() {
                 <p className="mt-2 text-xs text-muted">Ultimul backup: {lastBackupPath}</p>
               ) : null}
             </div>
+            </SettingsGroup>
 
+            <SettingsGroup legacy={!newUI} title="Timp pentru mine" description="Gene, păr, unghii și alte blocaje personale">
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-[#181511] px-4 py-4">
               <p className="text-sm font-semibold">Serviciile mele</p>
               <p className="mt-2 text-sm text-[#ddd4c5]">
@@ -6057,7 +6095,9 @@ export default function Home() {
                 </div>
               ) : null}
             </div>
+            </SettingsGroup>
 
+            <SettingsGroup legacy={!newUI} title="Mesajul de confirmare" description="Personalizează mesajul pentru cliente">
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
               <p className="text-sm font-semibold">Mesaj WhatsApp</p>
               <p className="mt-2 text-sm text-[#ddd4c5]">
@@ -6079,7 +6119,9 @@ export default function Home() {
                 Reseteaza mesajul
               </button>
             </div>
+            </SettingsGroup>
 
+            <SettingsGroup legacy={!newUI} title="Orarul studioului" description="Zile de lucru, pauze și excepții">
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-[#181511] px-4 py-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -6231,7 +6273,9 @@ export default function Home() {
                 </button>
               </div>
             </div>
+            </SettingsGroup>
 
+            <SettingsGroup legacy={!newUI} title="Istoricul notificărilor" description="Vezi ultimele mesaje trimise">
             <div className="gold-ring mb-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold">Jurnal notificari</p>
@@ -6273,7 +6317,9 @@ export default function Home() {
                 <p className="mt-3 text-sm text-muted">Nu exista notificari trimise in jurnal.</p>
               )}
             </div>
+            </SettingsGroup>
 
+            <SettingsGroup legacy={!newUI} title="Catalogul de servicii" description="Prețuri, durate și disponibilitate" forceOpen={editingServiceId !== null}>
             <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
               <div className="grid gap-3">
                 <label className="grid gap-2 text-sm">
@@ -6382,6 +6428,8 @@ export default function Home() {
               ))}
             </div>
 
+            </SettingsGroup>
+
             {isSupabaseConfigured ? (
               <button
                 className="mt-6 w-full rounded-[8px] border border-line bg-panel px-4 py-3 text-sm font-medium"
@@ -6395,7 +6443,7 @@ export default function Home() {
         ) : null}
 
         {toast ? (
-          <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2">
+          <div className="studio-toast fixed bottom-24 left-1/2 z-50 -translate-x-1/2" role="status" aria-live="polite">
             <div
               className={`rounded-[8px] px-4 py-2 text-sm shadow-lg ${
                 toast.type === "error"
