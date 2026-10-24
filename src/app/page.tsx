@@ -18,7 +18,8 @@ import {
   mapServiceRow,
 } from "@/lib/demo-data";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { getCustomerReportingAppointments, isPersonalBlock } from "@/lib/reporting";
+import type { ReportPeriod } from "@/lib/reporting";
+import { getCustomerReportingAppointments, getReportRange, selectReportMonth, shiftReportDate, summarizeReportAppointments, isPersonalBlock } from "@/lib/reporting";
 import {
   checkBooking,
   getWorkWindowsForDate,
@@ -664,7 +665,11 @@ export default function Home() {
   const [appointmentHistorySearch, setAppointmentHistorySearch] = useState("");
   const [appointmentHistoryClientId, setAppointmentHistoryClientId] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(() => todayIso().slice(0, 7));
-  const [reportMonth, setReportMonth] = useState(() => todayIso().slice(0, 7));
+  const [reportDate, setReportDate] = useState(() => todayIso());
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>("month");
+  const reportMonth = reportDate.slice(0, 7);
+  const reportRange = useMemo(() => getReportRange(reportPeriod, reportDate), [reportPeriod, reportDate]);
+  const reportPeriodName = { day: "Zi", week: "Săptămână", month: "Lună" }[reportPeriod];
   const [scrollToEditorTick, setScrollToEditorTick] = useState(0);
   const [pushSupported, setPushSupported] = useState(false);
   const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(
@@ -1315,14 +1320,15 @@ export default function Home() {
     };
   }, [appointmentsForDayAll, workWindowsForSelectedDate]);
 
-  const reportMonthLabel = useMemo(
-    () =>
-      new Intl.DateTimeFormat("ro-RO", {
-        month: "long",
-        year: "numeric",
-      }).format(new Date(`${reportMonth}-01T12:00:00`)),
-    [reportMonth]
-  );
+  const reportPeriodLabel = useMemo(() => {
+    const format = (date: string) => new Intl.DateTimeFormat("ro-RO", {
+      day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
+    }).format(new Date(`${date}T12:00:00Z`));
+    if (reportPeriod === "month") return new Intl.DateTimeFormat("ro-RO", {
+      month: "long", year: "numeric", timeZone: "UTC",
+    }).format(new Date(`${reportRange.start}T12:00:00Z`));
+    return reportPeriod === "day" ? format(reportRange.start) : `${format(reportRange.start)} – ${format(reportRange.end)}`;
+  }, [reportPeriod, reportRange]);
 
   const reportYear = reportMonth.slice(0, 4);
 
@@ -1358,22 +1364,15 @@ export default function Home() {
     const yearUniqueClients = new Set(yearNonCancelled.map((appointment) => appointment.clientId)).size;
     const yearAvgTicket = yearNonCancelled.length > 0 ? Math.round(yearRevenue / yearNonCancelled.length) : 0;
 
-    const monthAppointments = yearAppointments
-      .filter((appointment) => toMonthKey(appointment.date) === reportMonth)
-      .sort((a, b) => (a.date === b.date ? a.start.localeCompare(b.start) : a.date.localeCompare(b.date)));
-
-    const nonCancelled = monthAppointments.filter(
-      (appointment) => !isCancelledAppointment(appointment)
-    );
-    const totalRevenue = nonCancelled.reduce((sum, appointment) => sum + appointment.price, 0);
-    const uniqueClients = new Set(nonCancelled.map((appointment) => appointment.clientId)).size;
-    const avgTicket = nonCancelled.length > 0 ? Math.round(totalRevenue / nonCancelled.length) : 0;
+    const periodSummary = summarizeReportAppointments(allAppointments, reportRange);
+    const periodAppointments = periodSummary.appointments;
+    const { nonCancelled, totalRevenue, uniqueClients, avgTicket, daily } = periodSummary;
     const hiddenRunningRevenue = allNonCancelled
       .filter((appointment) => appointment.date >= HIDDEN_RUNNING_TOTAL_START)
       .reduce((sum, appointment) => sum + appointment.price, 0);
 
     const statusMap = new Map<string, number>();
-    for (const appointment of monthAppointments) {
+    for (const appointment of periodAppointments) {
       const status = normalizedAppointmentStatus(appointment.status);
       statusMap.set(status, (statusMap.get(status) ?? 0) + 1);
     }
@@ -1500,8 +1499,10 @@ export default function Home() {
         hourMap.set(hour, (hourMap.get(hour) ?? 0) + 1);
       }
     }
-    const hourlyLoad = Array.from({ length: 14 }, (_, index) => {
-      const hour = 8 + index;
+    const firstReportHour = Math.min(8, ...hourMap.keys());
+    const lastReportHour = Math.max(21, ...hourMap.keys());
+    const hourlyLoad = Array.from({ length: lastReportHour - firstReportHour + 1 }, (_, index) => {
+      const hour = firstReportHour + index;
       return {
         label: `${`${hour}`.padStart(2, "0")}:00`,
         count: hourMap.get(hour) ?? 0,
@@ -1528,7 +1529,8 @@ export default function Home() {
       yearRevenue,
       yearUniqueClients,
       yearAvgTicket,
-      monthAppointments,
+      periodAppointments,
+      daily,
       nonCancelled,
       totalRevenue,
       uniqueClients,
@@ -1546,7 +1548,7 @@ export default function Home() {
       todayRevenue,
       todayPendingConfirmations,
     };
-  }, [appointments, reportMonth, reportYear]);
+  }, [appointments, reportRange, reportYear]);
 
   const dailyRevenue = appointmentsForSelectedDate
     .filter((appointment) => !isCancelledAppointment(appointment))
@@ -2064,10 +2066,10 @@ export default function Home() {
   }, [activeTab, appointmentHistoryOpen, appointmentHistoryClientId]);
 
   useEffect(() => {
-    if (!newUI || activeTab !== "reports") return;
+    if (!newUI || activeTab !== "reports" || reportPeriod !== "month") return;
     const frame = requestAnimationFrame(() => reportMonthButtonRef.current?.scrollIntoView({block: "nearest", inline: "center"}));
     return () => cancelAnimationFrame(frame);
-  }, [activeTab, reportMonth]);
+  }, [activeTab, reportMonth, reportPeriod]);
 
   const resetAppointmentForm = (
     service?: Service,
@@ -5800,9 +5802,35 @@ export default function Home() {
           <section className="mt-6" data-ui="reports">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-semibold">Rapoarte</h2>
-              <span className="text-sm text-muted">Lunar</span>
+              <span className="text-sm text-muted">{reportPeriodName}</span>
             </div>
 
+            <div className="report-period-tabs mb-3 grid grid-cols-3 gap-2" role="group" aria-label="Tip raport">
+              {(["day", "week", "month"] as const).map((period) => (
+                <button key={period} type="button" aria-pressed={reportPeriod === period}
+                  className={`rounded-[8px] border px-3 py-3 text-sm ${reportPeriod === period ? "border-gold bg-gold text-black" : "border-line bg-panel text-muted"}`}
+                  onClick={() => setReportPeriod(period)}>
+                  {{ day: "Zi", week: "Săptămână", month: "Lună" }[period]}
+                </button>
+              ))}
+            </div>
+            <div className="report-date-controls mb-3 grid gap-2">
+              <label className="grid gap-2 text-sm">
+                <span>{reportPeriod === "week" ? "Alege o zi din săptămână" : "Data raportului"}</span>
+                <input type="date" value={reportDate} min="2023-01-01" max="9999-12-31"
+                  onChange={(event) => { if (event.target.validity.valid && event.target.value) setReportDate(event.target.value); }} />
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button type="button" aria-label="Perioada precedentă" className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
+                  disabled={reportRange.start <= "2023-01-01"}
+                  onClick={() => setReportDate((date) => { const previous = shiftReportDate(date, reportPeriod, -1); return previous < "2023-01-01" ? "2023-01-01" : previous; })}>← Înapoi</button>
+                <button type="button" className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm" onClick={() => setReportDate(todayIso())}>Astăzi</button>
+                <button type="button" aria-label="Perioada următoare" className="rounded-[8px] border border-line bg-panel px-3 py-2 text-sm"
+                  disabled={reportRange.end >= "9999-12-31"}
+                  onClick={() => setReportDate((date) => shiftReportDate(date, reportPeriod, 1))}>Înainte →</button>
+              </div>
+            </div>
+            {reportPeriod === "month" ? <>
             <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
               {reportYearOptions.map((year) => (
                 <button
@@ -5812,7 +5840,7 @@ export default function Home() {
                       ? "border-gold bg-gold text-black"
                       : "border-line bg-panel text-muted"
                   }`}
-                  onClick={() => setReportMonth(`${year}-${reportMonth.slice(5, 7)}`)}
+                  onClick={() => setReportDate(selectReportMonth(reportDate, `${year}-${reportMonth.slice(5, 7)}`))}
                   type="button"
                 >
                   {year}
@@ -5830,7 +5858,7 @@ export default function Home() {
                       ? "border-gold bg-gold text-black"
                       : "border-line bg-panel text-muted"
                   }`}
-                  onClick={() => setReportMonth(monthKey)}
+                  onClick={() => setReportDate(selectReportMonth(reportDate, monthKey))}
                   type="button"
                 >
                   {new Intl.DateTimeFormat("ro-RO", {
@@ -5841,32 +5869,44 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="mb-3 rounded-[8px] border border-line bg-panel-soft px-4 py-3">
-              <p className="text-xs text-muted">Luna selectata</p>
-              <p className="mt-1 text-sm capitalize text-foreground">{reportMonthLabel}</p>
+            </> : null}
+            <div className="mb-3 rounded-[8px] border border-line bg-panel-soft px-4 py-3" role="status" aria-live="polite">
+              <p className="text-xs text-muted">Perioada selectată</p>
+              <p className="mt-1 text-sm capitalize text-foreground">{reportPeriodLabel}</p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">{newUI ? "Valoare programări" : "Venit luna"}</p>
+                <p className="text-xs text-muted">Valoare programări</p>
                 <p className="mt-1 text-xl font-semibold text-gold">{formatPrice(reportData.totalRevenue)}</p>
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Programari luna</p>
-                <p className="mt-1 text-xl font-semibold">{reportData.monthAppointments.length}</p>
+                <p className="text-xs text-muted">Programări în perioadă</p>
+                <p className="mt-1 text-xl font-semibold">{reportData.periodAppointments.length}</p>
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">Cliente active luna</p>
+                <p className="text-xs text-muted">Cliente active</p>
                 <p className="mt-1 text-xl font-semibold">{reportData.uniqueClients}</p>
               </div>
               <div className="gold-ring rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-                <p className="text-xs text-muted">{newUI ? "Valoare medie" : "Bon mediu luna"}</p>
+                <p className="text-xs text-muted">Valoare medie</p>
                 <p className="mt-1 text-xl font-semibold">{formatPrice(reportData.avgTicket)}</p>
               </div>
             </div>
 
+            <p className="mt-3 text-xs leading-5 text-muted">Valoarea și media includ doar programările neanulate; blocajele personale sunt excluse. Valorile reprezintă programări, nu încasări confirmate.</p>
+            <details key={reportPeriod} open={reportPeriod !== "month"} className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
+              <summary className="cursor-pointer text-sm font-semibold">Defalcare pe zile</summary>
+              <div className="mt-3 grid gap-2">
+                {reportData.daily.map((day) => <div key={day.date} className="flex items-center justify-between gap-3 rounded-[8px] border border-line bg-panel px-3 py-2">
+                  <div><p className="text-sm font-medium">{formatShortDate(day.date)}</p><p className="text-xs text-muted">{day.count} active · {day.cancelled} anulate</p></div>
+                  <p className="shrink-0 text-sm font-semibold text-gold">{formatPrice(day.revenue)}</p>
+                </div>)}
+              </div>
+            </details>
+
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Programari luna</p>
+              <p className="text-sm font-semibold">Programări în perioadă</p>
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded-[8px] border border-line bg-black/70 px-3 py-2">
                   <p className="text-xs text-muted">Programate</p>
@@ -5884,7 +5924,7 @@ export default function Home() {
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Top servicii (luna)</p>
+              <p className="text-sm font-semibold">Top servicii în perioadă</p>
               {reportData.topServices.length > 0 ? (
                 <div className="mt-3 space-y-2">
                   {reportData.topServices.map((service) => {
@@ -5899,18 +5939,18 @@ export default function Home() {
                         <div className="mt-2 h-2 rounded-[4px] bg-[#232323]">
                           <div className="h-2 rounded-[4px] bg-gold" style={{ width: `${width}%` }} />
                         </div>
-                        <p className="mt-1 text-xs text-muted">Venit {formatPrice(service.revenue)}</p>
+                        <p className="mt-1 text-xs text-muted">Valoare {formatPrice(service.revenue)}</p>
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-muted">Nu exista date pentru luna selectata.</p>
+                <p className="mt-3 text-sm text-muted">Nu există date pentru perioada selectată.</p>
               )}
             </div>
 
             <div className="gold-ring mt-4 rounded-[8px] border border-line bg-panel-soft px-4 py-4">
-              <p className="text-sm font-semibold">Top cliente (luna)</p>
+              <p className="text-sm font-semibold">Top cliente în perioadă</p>
               {reportData.topClients.length > 0 ? (
                 <div className="mt-3 space-y-2">
                   {reportData.topClients.map((client) => (
@@ -5924,7 +5964,7 @@ export default function Home() {
                   ))}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-muted">Nu exista cliente active in luna selectata.</p>
+                <p className="mt-3 text-sm text-muted">Nu există cliente active în perioada selectată.</p>
               )}
             </div>
 
@@ -5940,7 +5980,7 @@ export default function Home() {
                   ))}
                 </div>
               ) : (
-                <p className="mt-3 text-sm text-muted">Nu exista zile aglomerate in aceasta luna.</p>
+                <p className="mt-3 text-sm text-muted">Nu există programări active în perioada selectată.</p>
               )}
             </div>
 

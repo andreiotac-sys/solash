@@ -1,0 +1,62 @@
+[
+  {
+    "mode": "Zi",
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "mode": "Săptămână",
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "mode": "Lună",
+    "scrollWidth": 390,
+    "width": 390
+  },
+  {
+    "mode": "Zi",
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "mode": "Săptămână",
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "mode": "Lună",
+    "scrollWidth": 430,
+    "width": 430
+  },
+  {
+    "mode": "Zi",
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "mode": "Săptămână",
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "mode": "Lună",
+    "scrollWidth": 768,
+    "width": 768
+  },
+  {
+    "mode": "Zi",
+    "scrollWidth": 1280,
+    "width": 1280
+  },
+  {
+    "mode": "Săptămână",
+    "scrollWidth": 1280,
+    "width": 1280
+  },
+  {
+    "mode": "Lună",
+    "scrollWidth": 1280,
+    "width": 1280
+  }
+]
